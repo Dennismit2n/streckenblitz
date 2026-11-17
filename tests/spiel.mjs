@@ -517,14 +517,14 @@ try {
     const sw = await js(`(async () => {
       const bereit = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 8000))]);
       const namen = await caches.keys();
-      const schluessel = namen.includes("streckenblitz-v4") ? (await (await caches.open("streckenblitz-v4")).keys()).map((r) => r.url) : [];
+      const schluessel = namen.includes("streckenblitz-v5") ? (await (await caches.open("streckenblitz-v5")).keys()).map((r) => r.url) : [];
       return { aktiv: !!(bereit && bereit.active), bereich: bereit ? bereit.scope : "", caches: namen, inhalt: schluessel.length, karte: schluessel.some((u) => u.endsWith("/karte.js")) }; })()`);
     console.log("  Service Worker: " + JSON.stringify(sw));
     pruefe(sw.aktiv && /127\.0\.0\.1:8644\/$/.test(sw.bereich), "Service Worker registriert und aktiv (Bereich " + sw.bereich + ")");
     // 18 Dateien seit M5b (karte.js dazu); die Liste in sw.js muss alles enthalten, was index.html lädt
     const swListe = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8"), seite = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
     const geladen = [...seite.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
-    pruefe(sw.caches.includes("streckenblitz-v4") && sw.inhalt >= 18 && sw.karte && geladen.every((d) => swListe.includes('"./' + d + '"')), "Cache streckenblitz-v4 mit allen Dateien (" + sw.inhalt + " Einträge, karte.js dabei, alle " + geladen.length + " Skripte der Seite in der Liste)");
+    pruefe(sw.caches.includes("streckenblitz-v5") && sw.inhalt >= 18 && sw.karte && geladen.every((d) => swListe.includes('"./' + d + '"')), "Cache streckenblitz-v5 mit allen Dateien (" + sw.inhalt + " Einträge, karte.js dabei, alle " + geladen.length + " Skripte der Seite in der Liste)");
     const mf = await js(`(async () => { const l = document.querySelector('link[rel="manifest"]'); const m = await (await fetch(l.href)).json();
       const icons = await Promise.all(m.icons.map(async (i) => (await fetch(i.src)).status));
       return { orientation: m.orientation, display: m.display, name: m.name, icons, start: m.start_url }; })()`);
