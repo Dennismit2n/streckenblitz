@@ -195,6 +195,33 @@ abschnitt("Physik Fahrgefühl");
   pruefe(Math.abs(a.letzte - soll) < 1e-9, "Rundenzeit genau auf den Zeitpunkt der Linie (" + a.letzte.toFixed(5) + " statt " + soll.toFixed(5) + ")");
   pruefe(a.runde === 2 && a.beste === a.letzte, "Runde und Bestzeit fortgeschrieben");
 }
+{
+  // Haarnadel im Fahrversuch statt nur über die Formel: Vollgas trägt ins Gras, und Bremsen ist schneller als das Gras.
+  // Fahrt von 120 Segmenten davor bis 120 danach, Lenkung mit Vorsteuerung zur Innenseite.
+  const hn = strecke.stuecke.find((st) => st.name === "Haarnadel am Leuchtturm");
+  const fahrt = (bremsAb, vZiel, gasAb) => {
+    const a = P.neuesAuto((hn.von - 120) * L, -0.9);
+    a.tempo = P.KONST.HOECHST;
+    let gras = 0;
+    while (a.z < (hn.bis + 120) * L && a.zeit < 60) {
+      const nr = strecke.segment(a.z).nr, k = strecke.segment(a.z).kurve;
+      const bremsen = hn.von - nr <= bremsAb && nr < hn.von + gasAb && a.tempo > vZiel * P.KONST.HOECHST;
+      const zielX = nr < hn.von ? -0.9 : nr < hn.bis ? 0.85 : 0;
+      const vor = (P.KONST.FLIEHKRAFT * k * a.tempo / P.KONST.HOECHST) / P.KONST.LENKUNG;
+      P.schritt(a, { gas: bremsen ? 0 : 1, bremse: bremsen ? 1 : 0, lenken: P.begrenze(vor + (zielX - a.x) * 3, -1, 1) }, strecke);
+      if (a.untergrund === "gras") gras++;
+    }
+    return { zeit: a.zeit, gras };
+  };
+  const voll = fahrt(-1, 1, 0);
+  let beste = null;
+  for (let v = 0.3; v <= 0.6; v += 0.02) for (let b = 0; b <= 60; b += 4) for (const g of [0, 20, 40]) {
+    const f = fahrt(b, v, g);
+    if (f.gras === 0 && (!beste || f.zeit < beste.zeit)) beste = f;
+  }
+  pruefe(voll.gras > 60, "Haarnadel mit Vollgas trägt ins Gras (" + voll.gras + " Takte)");
+  pruefe(!!beste && beste.zeit < voll.zeit - 0.3, "Haarnadel: Bremsen ist schneller als durchs Gras (" + (beste ? beste.zeit.toFixed(2) : "keine Fahrt ohne Gras") + " s gegen " + voll.zeit.toFixed(2) + " s)");
+}
 
 // --- Bot -----------------------------------------------------------------------
 abschnitt("Bot fährt Runden");
