@@ -666,6 +666,84 @@ abschnitt("Ton: Automatik und Drehzahl");
   pruefe(g3 === 1, "beim Bremsen bis zum Stand zurück in den ersten Gang");
 }
 
+// --- Streckenkarte (karte.js) ---------------------------------------------------------
+abschnitt("Streckenkarte");
+{
+  const K = require(path.join(wurzel, "karte.js"));
+  const grad = (w) => (w * 180) / Math.PI;
+  // Ein Zeichenblatt ohne Browser: merkt sich Linien, Punkte und Schrift
+  function blatt() {
+    const log = { linie: [], text: [] };
+    const ctx = {
+      log, setTransform() {}, clearRect() {}, fillRect() {}, beginPath() {}, closePath() {}, stroke() {}, fill() {}, save() {}, restore() {},
+      translate() {}, rotate() {}, arc() {}, moveTo(x, y) { log.linie.push([x, y]); }, lineTo(x, y) { log.linie.push([x, y]); },
+      strokeText() {}, fillText(s, x, y) { log.text.push(s); }, measureText(s) { return { width: s.length * 5 }; },
+      createLinearGradient() { return { addColorStop() {} }; },
+    };
+    return ctx;
+  }
+  const FARBEN = { saum: "#000", saumBreite: 5, linie: "#888", linieBreite: 2, ziel: "#fff", zielBreite: 2, du: "#3f8f93", duRand: "#fff", ring: "#000", hof: "#000", nummer: "#fff", schrift: "serif", pfeil: "#d58a4e" };
+  pruefe(Math.abs(K.winkelAbstand(3.1, -3.1) - (2 * Math.PI - 6.2)) < 1e-9 && Math.abs(K.winkelAbstand(-3.1, 3.1) + (2 * Math.PI - 6.2)) < 1e-9, "Winkelabstand über ±π hinweg ist der kurze Weg");
+  for (const id of S.REIHE) {
+    const s = S.baue(S.PLAENE[id]), k = K.erzeuge(s);
+    const lang = s.laenge;
+    // Linie geschlossen und ohne Sprung an der Ziellinie
+    const a = k.punkt(lang - 25), b = k.punkt(25), c = k.punkt(0), e = k.punkt(lang);
+    pruefe(Math.abs(Math.hypot(a.x - b.x, a.y - b.y) - 50) < 0.5 && Math.hypot(c.x - e.x, c.y - e.y) < 1e-6, id + ": Kartenlinie an der Ziellinie geschlossen, ohne Sprung");
+    pruefe(k.linie.length > 1000 && k.spanne > 100000, id + ": " + k.linie.length + " Punkte, Ausdehnung " + Math.round(k.spanne) + " Einheiten");
+    // Drehung stetig über die ganze Runde und über die Naht, gleich nach einer Runde, nahe an der Fahrtrichtung
+    let groesste = 0, abweichung = 0, vorher = K.winkelBei(k, -3000);
+    for (let z = -2950; z <= lang + 3000; z += 50) {
+      const w = K.winkelBei(k, z);
+      groesste = Math.max(groesste, Math.abs(K.winkelAbstand(vorher, w)));
+      vorher = w;
+      if (z >= 0 && z < lang) abweichung = Math.max(abweichung, Math.abs(K.winkelAbstand(w, s.richtungBei(z))));
+    }
+    pruefe(grad(groesste) < 1.5, id + ": Karte dreht stetig, höchstens " + grad(groesste).toFixed(2) + " Grad je 50 Einheiten, auch über die Naht");
+    pruefe(Math.abs(K.winkelAbstand(K.winkelBei(k, 777), K.winkelBei(k, 777 + lang))) < 1e-9 && Math.abs(K.winkelAbstand(K.winkelBei(k, -10), K.winkelBei(k, 10))) < 0.01, id + ": Winkel an der Ziellinie und eine Runde später gleich");
+    pruefe(grad(abweichung) < 3, id + ": Kartenrichtung höchstens " + grad(abweichung).toFixed(2) + " Grad von der Fahrtrichtung entfernt");
+    // Abbildung: du in der festen Mitte, vorn ist oben, hinten unten, rechts rechts
+    let vornOben = 0, hintenUnten = 0, rechts = 0, mitte = 0, n = 0;
+    for (let z = 0; z < lang; z += 997) {
+      n++;
+      const ich = k.punkt(z, 0.3), bild = K.abbildung(ich, K.winkelBei(k, z), 0.001, 66, 79);
+      const [mx, my] = bild(ich), [vx, vy] = bild(k.punkt(z + 1200, 0.3)), [hx, hy] = bild(k.punkt(z - 1200, 0.3)), [rx] = bild(k.punkt(z, 1));
+      if (Math.abs(mx - 66) < 1e-9 && Math.abs(my - 79) < 1e-9) mitte++;
+      if (vy < 79 - 1 && Math.abs(vx - 66) < Math.abs(79 - vy) * 0.36) vornOben++; // höchstens 20 Grad schräg, auch in der Haarnadel
+      if (hy > 79 + 1) hintenUnten++;
+      if (rx > 66) rechts++;
+    }
+    pruefe(mitte === n && vornOben === n && hintenUnten === n && rechts === n, id + ": an " + n + " Stellen steht dein Wagen fest in der Mitte, die Strecke voraus oben, dahinter unten, rechts rechts");
+    // Zeichnen ohne Browser: Minikarte liefert den Winkel und die feste Stelle, Übersicht passt ganz in ihr Feld
+    const st = K.zeichneMini(blatt(), k, { breite: 132, hoehe: 132, d: 1, z: 12345, x: 0, gegner: [], farben: FARBEN, nummern: false });
+    pruefe(st.cx === 66 && Math.abs(st.cy - 132 * K.KONST.MITTE_Y) < 1e-9 && st.cy > 66 && st.winkel === K.winkelBei(k, 12345), id + ": Minikarte mit dir etwas unter der Mitte (" + st.cy.toFixed(1) + " von 132)");
+    const ub = blatt();
+    K.zeichneUebersicht(ub, k, { breite: 200, hoehe: 112, d: 1, farben: FARBEN });
+    // die Punkte der Linie und des Zielstrichs (der Pfeil zeichnet in eigenen, gedrehten Koordinaten)
+    const drin = ub.log.linie.slice(0, k.linie.length + 2).every(([x, y]) => x >= 0 && x <= 200 && y >= 0 && y <= 112);
+    pruefe(ub.log.linie.length > k.linie.length && drin, id + ": Übersicht mit Linie, Start und Ziel und Pfeil ganz im Feld");
+    // Norden oben: die Zielgerade (Richtung 0) läuft in der Übersicht genau senkrecht nach oben
+    const [p0, p1] = ub.log.linie;
+    pruefe(Math.abs(p0[0] - p1[0]) < 0.01 && p1[1] < p0[1] - 0.1, id + ": Übersicht steht mit Norden oben (Zielgerade senkrecht nach oben)");
+  }
+  // Startnummern: zwei Gegner an derselben Stelle zeigen nur eine Nummer, und eine Nummer wechselt höchstens alle 0,5 s
+  {
+    const s = S.baue(S.PLAENE.moewenkap), k = K.erzeuge(s);
+    const ansicht = (gegner, zeit, stand) => ({ breite: 132, hoehe: 132, d: 1, z: 50000, x: 0, gegner, farben: FARBEN, nummern: true, stand, zeit });
+    const fern = (dz, nr) => ({ z: 50000 + dz, x: 0, farbe: "#888", nummer: nr });
+    let c = blatt();
+    K.zeichneMini(c, k, ansicht([fern(30000, 4), fern(30000, 7)], 0, {}));
+    pruefe(c.log.text.length === 1, "zwei Gegner übereinander: nur eine Startnummer (" + c.log.text.join(",") + ")");
+    c = blatt();
+    K.zeichneMini(c, k, ansicht([fern(30000, 4), fern(-30000, 7)], 0, {}));
+    pruefe(c.log.text.join(",") === "4,7" || c.log.text.join(",") === "7,4", "zwei Gegner auseinander: beide Startnummern");
+    const stand = {};
+    const zeige = (dz7, zeit) => { const b = blatt(); K.zeichneMini(b, k, ansicht([fern(30000, 4), fern(dz7, 7)], zeit, stand)); return b.log.text.includes("7"); };
+    const folge = [zeige(-30000, 0), zeige(30000, 0.1), zeige(30000, 0.3), zeige(30000, 0.6), zeige(-30000, 0.7), zeige(-30000, 1.2)];
+    pruefe(folge.join() === "true,true,true,false,false,true", "Startnummer verschwindet und kommt wieder frühestens nach 0,5 s (" + folge.join() + ")");
+  }
+}
+
 // --- Texte und Dateien --------------------------------------------------------------
 abschnitt("Sprachen");
 {

@@ -25,6 +25,7 @@ const DATEIEN = [
   "./rennen.js",
   "./deko.js",
   "./grafik.js",
+  "./karte.js",
   "./ton.js",
   "./manifest.webmanifest",
   "./favicon.svg",

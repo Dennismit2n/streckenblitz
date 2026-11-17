@@ -18,6 +18,8 @@
 // E-Turbo (M5): Taste E zündet im Spiel, Schimmer an der Platte blendet ruhig ein und aus, Leuchtdichte springt nicht,
 // Zahlen weiter höchstens alle 0,5 s, Flimmern mit Turbo, Surren im OfflineAudioContext, Gamepad RB und Touch-Knopf.
 // Fotos in <fotoordner>/m5.
+// Streckenkarte (M5b): Minikarte unten links scharf in Gerätepixeln, dreht sich mit (du zeigst nach oben, die Strecke voraus
+// liegt über dir), ohne Zittern, Karten in der Streckenwahl (still, Norden oben), Handy quer ohne Überdeckung, Sehhilfen.
 // Ausgabe endet mit „SPIEL: BESTANDEN“ und Exit 0, sonst „SPIEL: DURCHGEFALLEN“ und Exit 1.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -515,11 +517,14 @@ try {
     const sw = await js(`(async () => {
       const bereit = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 8000))]);
       const namen = await caches.keys();
-      const inhalt = namen.includes("streckenblitz-v2") ? (await (await caches.open("streckenblitz-v2")).keys()).length : 0;
-      return { aktiv: !!(bereit && bereit.active), bereich: bereit ? bereit.scope : "", caches: namen, inhalt }; })()`);
+      const schluessel = namen.includes("streckenblitz-v2") ? (await (await caches.open("streckenblitz-v2")).keys()).map((r) => r.url) : [];
+      return { aktiv: !!(bereit && bereit.active), bereich: bereit ? bereit.scope : "", caches: namen, inhalt: schluessel.length, karte: schluessel.some((u) => u.endsWith("/karte.js")) }; })()`);
     console.log("  Service Worker: " + JSON.stringify(sw));
     pruefe(sw.aktiv && /127\.0\.0\.1:8644\/$/.test(sw.bereich), "Service Worker registriert und aktiv (Bereich " + sw.bereich + ")");
-    pruefe(sw.caches.includes("streckenblitz-v2") && sw.inhalt >= 16, "Cache streckenblitz-v2 mit allen Dateien (" + sw.inhalt + " Einträge)");
+    // 18 Dateien seit M5b (karte.js dazu); die Liste in sw.js muss alles enthalten, was index.html lädt
+    const swListe = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8"), seite = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    const geladen = [...seite.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+    pruefe(sw.caches.includes("streckenblitz-v2") && sw.inhalt >= 18 && sw.karte && geladen.every((d) => swListe.includes('"./' + d + '"')), "Cache streckenblitz-v2 mit allen Dateien (" + sw.inhalt + " Einträge, karte.js dabei, alle " + geladen.length + " Skripte der Seite in der Liste)");
     const mf = await js(`(async () => { const l = document.querySelector('link[rel="manifest"]'); const m = await (await fetch(l.href)).json();
       const icons = await Promise.all(m.icons.map(async (i) => (await fetch(i.src)).status));
       return { orientation: m.orientation, display: m.display, name: m.name, icons, start: m.start_url }; })()`);
@@ -755,6 +760,164 @@ try {
   }
   await js(`localStorage.setItem("werkstatt.darstellung", "system")`);
   await laden("");
+
+  // ---------------------------------------------------------------------------------------------
+  // Meilenstein 5b, Streckenkarte
+  // ---------------------------------------------------------------------------------------------
+  console.log("Streckenkarte");
+  await ansicht("desktop");
+  await js(`localStorage.setItem("werkstatt.darstellung", "system")`);
+  // Lage der Platten zueinander: überlappen sie, liegt die Karte im Bild, wie groß ist die Leinwand der Karte
+  const LAGE = `(() => { const r = (e) => { const b = (typeof e === "string" ? document.getElementById(e) : e).getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+    const sichtbar = (e) => !e.hidden && getComputedStyle(e).display !== "none" && e.getBoundingClientRect().width > 0;
+    const k = r("platte-karte"), bild = r("leinwand"), c = document.getElementById("karte");
+    const andere = ["platte-stand", "platte-zeit", "platte-tempo", "ampel", "platte-bot"].map((id) => document.getElementById(id)).concat([...document.querySelectorAll("#touch .beruehr")]).filter(sichtbar);
+    const ueber = andere.filter((e) => { const a = r(e); return a[0] < k[2] && a[2] > k[0] && a[1] < k[3] && a[3] > k[1]; }).map((e) => e.id);
+    return { k, bild, ueber, breite: c.width, css: c.getBoundingClientRect().width, dpr: devicePixelRatio, zeiger: getComputedStyle(document.getElementById("platte-karte")).pointerEvents,
+      aria: document.getElementById("platte-karte").getAttribute("aria-label") }; })()`;
+  // Pixel einer Leinwand lesen, über eine Kopie mit willReadFrequently (sonst warnt der Browser beim wiederholten Lesen)
+  const LIES = `((c) => { const k = window.__kopie || (window.__kopie = document.createElement("canvas")); k.width = c.width; k.height = c.height;
+    const g = k.getContext("2d", { willReadFrequently: true }); g.drawImage(c, 0, 0); return g.getImageData(0, 0, k.width, k.height); })`;
+  // Pixel der Karte: Pfeil an der festen Stelle, Linie der Strecke voraus. Der Pfeil verdeckt die ersten Pixel vor dir, darum wird die
+  // Strecke von deinem Wagen aus nach vorn abgebildet, bis sie 9 Pixel vom Pfeil entfernt ist; dort muss die Linie gezeichnet sein (Farbe der
+  // Linie in 3 × 3 Pixeln), und 3000 Einheiten voraus müssen oberhalb von dir liegen.
+  const KARTE_PIXEL = `(() => { const c = document.getElementById("karte"), x = ${LIES}(c), st = ${SB}.karte, d = devicePixelRatio, k = ${SB}.kartenDaten, a = ${SB}.auto;
+    const px = (u, v) => { const i = (Math.round(v) * x.width + Math.round(u)) * 4; return [x.data[i], x.data[i + 1], x.data[i + 2], x.data[i + 3]]; };
+    const f = ${SB}.kartenFarben.mini.linie, soll = f.startsWith("#") ? [1, 3, 5].map((i) => parseInt(f.slice(i, i + 2), 16)) : f.match(/[0-9]+/g).slice(0, 3).map(Number);
+    const bild = Karte.abbildung(k.punkt(a.z, a.x), st.winkel, Karte.massstabMini(k, c.width), st.cx, st.cy);
+    let stelle = null; for (let dz = 500; dz < 90000 && !stelle; dz += 250) { const p = bild(k.punkt(a.z + dz, a.x)); if (Math.hypot(p[0] - st.cx, p[1] - st.cy) >= 9 * d) stelle = p; }
+    let voraus = null; for (let v = -1; v <= 1; v++) for (let u = -1; u <= 1; u++) { const p = px(stelle[0] + u * d, stelle[1] + v * d);
+      if (p[3] > 200 && Math.abs(p[0] - soll[0]) + Math.abs(p[1] - soll[1]) + Math.abs(p[2] - soll[2]) < 40) voraus = p; }
+    const oben = bild(k.punkt(a.z + 3000, a.x))[1] < st.cy;
+    return { winkel: st.winkel, cx: st.cx, cy: st.cy, pfeil: px(st.cx, st.cy), voraus: oben ? voraus : null, linie: soll, z: a.z, soll: Karte.winkelBei(k, a.z) }; })()`;
+  const winkelAbstand = (a, b) => { const d = (b - a) % (2 * Math.PI); return d > Math.PI ? d - 2 * Math.PI : d < -Math.PI ? d + 2 * Math.PI : d; };
+  for (const id of ["moewenkap", "mondsenke", "tannenjoch"]) {
+    await laden("?modus=rennen&samen=3&zeitraffer=3&strecke=" + id);
+    const lage = await js(LAGE);
+    const imBild = lage.k[0] >= lage.bild[0] && lage.k[3] <= lage.bild[3] + 1 && lage.k[2] < (lage.bild[0] + lage.bild[2]) / 2 && lage.k[1] > (lage.bild[1] + lage.bild[3]) / 2;
+    pruefe(imBild && !lage.ueber.length && lage.zeiger === "none", id + ": Karte unten links im Bild, überdeckt keine andere Platte, fängt keine Klicks (" + lage.k.map(Math.round).join(", ") + ")");
+    pruefe(lage.breite === Math.round(lage.css * lage.dpr) && lage.css >= 120, id + ": Karte scharf in Gerätepixeln (" + lage.breite + " Pixel für " + lage.css.toFixed(1) + " CSS-Pixel)");
+    // Foto im Rennen mit den Gegnern als Punkten
+    await js(SELBST_FAHREN);
+    await bis(`${SB}.rennen.phase === "rennen" && ${SB}.rennen.spieler.zeit > 10`, 20000);
+    await fotoAls("m5/karte-" + id + "-1440-de.png");
+    const r = await js(`(() => { const b = document.getElementById("platte-karte").getBoundingClientRect(); return { x: b.left - 16, y: b.top - 16, width: b.width + 32, height: b.height + 32, scale: 3 }; })()`);
+    const nah = await cdp("Page.captureScreenshot", { format: "png", clip: r });
+    fs.writeFileSync(path.join(ziel, "m5/karte-" + id + "-nah.png"), Buffer.from(nah.data, "base64"));
+    // Über einige Sekunden im Zeitfahren (kein Gegner verdeckt die Linie): Winkel der Karte gleich der Richtung der Strecke an
+    // deinem Wagen, du bleibst an derselben Stelle, die Strecke liegt voraus über dir
+    await laden("?modus=zeitfahren&zeitraffer=3&strecke=" + id);
+    await js(SELBST_FAHREN);
+    const proben = [];
+    for (let i = 0; i < 9; i++) { await warte(i ? 900 : 4000); proben.push(await js(KARTE_PIXEL)); }
+    const stelle = proben.every((p) => p.cx === proben[0].cx && p.cy === proben[0].cy && p.cy > p.cx);
+    const passt = proben.every((p) => Math.abs(winkelAbstand(p.winkel, p.soll)) < 0.12);
+    const winkel = proben.map((p) => p.winkel), spanne = Math.max(...winkel.map((w) => Math.abs(winkelAbstand(winkel[0], w))));
+    const voraus = proben.filter((p) => p.voraus).length;
+    const pfeil = proben.filter((p) => p.pfeil[3] > 200 && p.pfeil[2] > p.pfeil[0]).length;
+    pruefe(stelle && pfeil === proben.length, id + ": dein Pfeil steht immer an derselben Stelle etwas unter der Mitte (" + proben[0].cx + ", " + proben[0].cy.toFixed(1) + ")");
+    pruefe(passt && spanne > 0.6, id + ": die Karte dreht sich mit der Fahrtrichtung (Winkel " + winkel.map((w) => w.toFixed(2)).join(" ") + ", größte Drehung " + (spanne * 180 / Math.PI).toFixed(0) + " Grad)");
+    pruefe(voraus === proben.length, id + ": die Strecke voraus liegt über deinem Pfeil (" + voraus + " von " + proben.length + " Proben)");
+  }
+  // Ruhe: Winkel je Bild bei voller Fahrt ohne Zeitraffer durch das Hafen-S von Möwenkap, kein Zittern (kein Hin und Her
+  // von Bild zu Bild; das S selbst dreht einmal um), höchstens wenige Grad je Bild
+  await laden("?modus=frei&strecke=moewenkap&start=1820");
+  await js(SELBST_FAHREN);
+  await warte(2500);
+  const ruhe = await js(`new Promise((fertig) => { const w = [], t0 = performance.now(); (function f() { w.push(${SB}.karte.winkel); if (performance.now() - t0 < 3000) requestAnimationFrame(f); else fertig(w); })(); })`);
+  const schritte = ruhe.slice(1).map((w, i) => winkelAbstand(ruhe[i], w));
+  const groesster = Math.max(...schritte.map(Math.abs));
+  // Zittern hieße: die Drehung kehrt oft die Richtung um, obwohl sie sich deutlich bewegt
+  let umkehr = 0;
+  for (let i = 1; i < schritte.length; i++) if (Math.abs(schritte[i]) > 0.002 && Math.abs(schritte[i - 1]) > 0.002 && Math.sign(schritte[i]) !== Math.sign(schritte[i - 1])) umkehr++;
+  const gesamt = schritte.reduce((s, x) => s + Math.abs(x), 0);
+  pruefe(ruhe.length > 100 && groesster < 0.07 && umkehr <= 2 && gesamt > 0.3, "Drehung ruhig: " + ruhe.length + " Bilder in 3 s über die Hafenmole ins Hafen-S (links, dann rechts), gesamt " + (gesamt * 180 / Math.PI).toFixed(0) + " Grad, höchstens " + (groesster * 180 / Math.PI).toFixed(2) + " Grad je Bild, " + umkehr + " Richtungswechsel");
+  // Über die Ziellinie: kein Sprung des Winkels (er wird nie aufaddiert)
+  await laden("?modus=frei&strecke=mondsenke");
+  await laden("?modus=frei&strecke=mondsenke&start=" + (await js(`${SB}.strecke.anzahl`) - 40));
+  await js(SELBST_FAHREN);
+  const naht = await js(`new Promise((fertig) => { const w = [], t0 = performance.now(); (function f() { w.push([${SB}.karte.winkel, ${SB}.auto.z]); if (performance.now() - t0 < 4000) requestAnimationFrame(f); else fertig(w); })(); })`);
+  const ueberNaht = naht.some((p, i) => i && p[1] < naht[i - 1][1] - 1000);
+  console.log("  Naht: z von " + Math.round(naht[0][1]) + " bis " + Math.round(naht.at(-1)[1]) + ", " + naht.length + " Bilder");
+  const nahtSprung = Math.max(...naht.slice(1).map((p, i) => Math.abs(winkelAbstand(naht[i][0], p[0]))));
+  pruefe(ueberNaht && nahtSprung < 0.05, "über die Ziellinie gedreht ohne Ruck (größter Schritt " + (nahtSprung * 180 / Math.PI).toFixed(2) + " Grad)");
+
+  // Flimmer- und Zahlentakt mit Karte: Zahlen weiter nie unter 500 ms, die Karte ändert die Leuchtdichte der Platte nur langsam
+  {
+    await laden("?modus=frei&strecke=moewenkap&start=1602");
+    await js(SELBST_FAHREN);
+    await warte(1500);
+    const m = await js(`new Promise((fertig) => { const zahl = [], mo = new MutationObserver(() => zahl.push(performance.now())); mo.observe(document.getElementById("tempo"), { childList: true, characterData: true, subtree: true });
+      const c = document.getElementById("karte"), hell = [], t0 = performance.now();
+      (function f() { const d = ${LIES}(c).data; let s = 0; for (let i = 0; i < d.length; i += 16) s += (d[i] + d[i + 1] + d[i + 2]) * d[i + 3] / 255; hell.push(s / (d.length / 16) / 765);
+        if (performance.now() - t0 < 3000) requestAnimationFrame(f); else { mo.disconnect(); fertig({ zahl, hell }); } })(); })`);
+    let min = Infinity; for (let i = 1; i < m.zahl.length; i++) min = Math.min(min, m.zahl[i] - m.zahl[i - 1]);
+    let stufe = 0; for (let i = 1; i < m.hell.length; i++) stufe = Math.max(stufe, Math.abs(m.hell[i] - m.hell[i - 1]));
+    pruefe(m.zahl.length >= 4 && min >= 499, "mit Karte: Tempo wechselt höchstens alle 0,5 s (" + m.zahl.length + " Wechsel, kleinster Abstand " + Math.round(min) + " ms)");
+    pruefe(stufe < 0.01, "Karte flimmert nicht: mittlere Helligkeit ändert sich je Bild höchstens um " + stufe.toFixed(4) + " (Grenze 0,01)");
+  }
+
+  // Streckenwahl: drei Karten, still, Norden oben (der Start liegt auf einer senkrechten Geraden), je Strecke verschieden
+  await laden("?strecke=moewenkap");
+  const wahlK = await js(`(() => [...document.querySelectorAll("#streckenwahl canvas")].map((c) => { const d = ${LIES}(c).data; let n = 0, h = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] > 300) { n++; h = (h * 31 + i) % 1000003; }
+    return { id: c.dataset.karte, breite: c.width, css: c.getBoundingClientRect().width, hell: n, h }; }))()`);
+  await warte(1500);
+  const wahlK2 = await js(`(() => [...document.querySelectorAll("#streckenwahl canvas")].map((c) => { const d = ${LIES}(c).data; let h = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] > 300) h = (h * 31 + i) % 1000003; return h; }))()`);
+  pruefe(wahlK.length === 3 && wahlK.map((k) => k.id).join() === "moewenkap,mondsenke,tannenjoch" && wahlK.every((k) => k.hell > 300 && k.breite === Math.round(k.css)) && new Set(wahlK.map((k) => k.h)).size === 3,
+    "Streckenwahl: drei Karten, jede mit eigener Linie (" + wahlK.map((k) => k.id + " " + k.hell + " helle Pixel").join(", ") + ")");
+  pruefe(wahlK2.every((h, i) => h === wahlK[i].h), "Streckenwahl: die Karten stehen still (nach 1,5 s Pixel für Pixel gleich)");
+  const norden = await js(`(() => { const k = Karte.erzeuge(${SB}.strecke), a = k.punkt(0), b = k.punkt(3000); return Math.abs(Math.atan2(b.x - a.x, b.y - a.y)); })()`);
+  pruefe(norden < 0.01, "Streckenwahl: Norden oben, die Zielgerade zeigt dort genau nach oben (Abweichung " + norden.toFixed(4) + ")");
+  await fotoAls("m5/streckenwahl-1440-de.png");
+
+  // Handy quer: Karte rechts unter der Zeit, keine Überdeckung mit Bedienflächen oder Platten, Lenkzone frei
+  await ansicht("quer");
+  for (const modus of ["rennen", "zeitfahren"]) {
+    await laden("?modus=" + modus + "&samen=3&strecke=moewenkap");
+    await js(SELBST_FAHREN);
+    await bis(`${SB}.rennen.phase === "rennen" && ${SB}.rennen.spieler.zeit > 5`, 20000);
+    const lq = await js(LAGE);
+    const rechts = lq.k[0] > (lq.bild[0] + lq.bild[2]) / 2 && lq.k[3] <= lq.bild[3] + 1 && lq.k[1] >= lq.bild[1];
+    pruefe(rechts && !lq.ueber.length && lq.breite === Math.round(lq.css * lq.dpr) && lq.css > 70, "Handy quer, " + modus + ": Karte rechts unter der Zeit im Bild, überdeckt weder Lenkzone noch Knöpfe noch Platten (" + lq.css.toFixed(0) + " CSS-Pixel, " + lq.breite + " Gerätepixel" + (lq.ueber.length ? ", überdeckt " + lq.ueber.join(",") : "") + ", Lage " + lq.k.map(Math.round).join(",") + ")");
+    if (modus === "rennen") await fotoAls("m5/karte-844x390-de.png");
+  }
+  await ansicht("hoch");
+  await laden("?modus=frei&strecke=moewenkap");
+  await trotzdem();
+  await js(`document.getElementById("weiter").click()`);
+  await warte(500);
+  const lh = await js(LAGE);
+  pruefe(!lh.ueber.length && lh.k[3] <= lh.bild[3] + 1, "Handy hochkant (trotzdem): Karte im Bild ohne Überdeckung");
+  await ansicht("desktop");
+
+  // Sehhilfen: Linie der Karte in der Schrift der Darstellung, Farbenblind mit Startnummern
+  for (const [modus, wert] of [["hc-dunkel", "hc-dark"], ["hc-hell", "hc-light"], ["farbenblind", "cvd-dark"], ["umkehr", "invert"]]) {
+    await js(`localStorage.setItem("werkstatt.darstellung", ${JSON.stringify(wert)})`);
+    // Foto im Rennen (Farbenblind und Hoher Kontrast mit Startnummern), Linie im Zeitfahren gemessen (kein Gegner davor)
+    await laden("?modus=rennen&samen=3&zeitraffer=3&strecke=mondsenke");
+    await js(SELBST_FAHREN);
+    await bis(`${SB}.rennen.phase === "rennen" && ${SB}.rennen.spieler.zeit > 9`, 20000);
+    await fotoAls("m5/karte-1440-" + modus + ".png");
+    await laden("?modus=zeitfahren&zeitraffer=3&strecke=mondsenke");
+    await js(SELBST_FAHREN);
+    await bis(`${SB}.rennen.phase === "rennen" && ${SB}.rennen.spieler.zeit > 9`, 20000);
+    const p = await js(KARTE_PIXEL);
+    const v = p.voraus || [0, 0, 0, 0], summe = v[0] + v[1] + v[2];
+    // Hoher Kontrast dunkel: Linie in der hellen Schrift (#E0E0E0) auf Schwarz; hell: schwarze Linie auf weißer Platte; sonst helle Linie auf dunkler Platte
+    const grund = await js(`getComputedStyle(document.getElementById("platte-karte")).backgroundColor`);
+    const ok = !!p.voraus && (modus === "hc-dunkel" ? summe > 600 && grund === "rgb(0, 0, 0)" : modus === "hc-hell" ? summe < 60 && grund === "rgb(255, 255, 255)" : summe > 330);
+    pruefe(ok, modus + ": Karte mit deutlicher Linie voraus (Linie " + p.linie.join(",") + ", gefunden " + (p.voraus ? v.slice(0, 3).join(",") : "nichts") + " auf " + grund + ")");
+  }
+  await js(`localStorage.setItem("werkstatt.darstellung", "system")`);
+
+  // Sprachen: Beschriftung der Karte für Vorleseprogramme
+  for (const code of ["de", "en", "ja"]) {
+    await laden("?sprache=" + code + "&modus=frei&strecke=tannenjoch");
+    const a = await js(`[document.getElementById("platte-karte").getAttribute("aria-label"), Sprachen.text(${JSON.stringify(code)}, "aria_karte")]`);
+    pruefe(a[0] === a[1] && a[0].length > 20, code + ": Karte beschriftet (" + a[0] + ")");
+  }
 
   console.log("Konsole");
   pruefe(meldungen.length === 0, "keine Fehler und Warnungen in der Konsole" + (meldungen.length ? ":\n    " + meldungen.join("\n    ") : ""));

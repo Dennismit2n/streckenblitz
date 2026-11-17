@@ -172,7 +172,7 @@
   #platte-zeit .zeile .etikett { font-size: calc(var(--hp) * 3.4); }
   #platte-zeit .zeile .wert { font-size: calc(var(--hp) * 4.4); color: var(--sb-text-leise); }
   #platte-zeit .zeile .wert.bestzeit { color: color-mix(in srgb, var(--sb-weissgold) 72%, var(--sb-text-leise)); }
-  #platte-tempo { left: calc(var(--hp) * 6); bottom: calc(var(--hp) * 6); min-width: calc(var(--hp) * 52); }
+  #platte-tempo { left: calc(var(--hp) * 10.4 + var(--karte) + 2px + var(--hp) * 3.6); bottom: calc(var(--hp) * 6); min-width: calc(var(--hp) * 52); }
   #platte-tempo .wert { display: inline; }
   #platte-tempo .einheit { font: 500 calc(var(--hp) * 3.6)/1 var(--sb-schrift-schild); color: var(--sb-text-leise); margin-left: calc(var(--hp) * 1.2); }
   .balken { position: relative; height: calc(var(--hp) * 2.2); margin-top: calc(var(--hp) * 2); background: rgba(255, 255, 255, 0.05); border: 1px solid color-mix(in srgb, var(--sb-weissgold) 16%, transparent); overflow: hidden; }
@@ -199,9 +199,19 @@
   }
   #platte-tempo.turbo .schimmer { opacity: 1; }
   #platte-bot { right: calc(var(--hp) * 6); bottom: calc(var(--hp) * 6); }
-  /* Mit Finger: unten liegen die Bedienflächen, das Tempo rückt unter Platz und Runde */
-  :root.beruehrung #platte-tempo { top: calc(var(--hp) * 24.5); bottom: auto; }
-  :root.beruehrung #platte-bot { bottom: auto; top: calc(var(--hp) * 34); }
+  /* Streckenkarte unten links: scharf in Gerätepixeln gezeichnet (karte.js), dreht sich mit, du zeigst nach oben.
+     Die Platte fängt keine Finger (wie alle Anzeigen), das Bild darin blendet zum Rand hin weich aus. */
+  #buehne { --karte: calc(var(--hp) * 44); }
+  #platte-karte { left: calc(var(--hp) * 6); bottom: calc(var(--hp) * 6); padding: calc(var(--hp) * 2.2); }
+  /* dichter als die anderen Platten, damit Randsteine und Deko nicht durch die feine Linie scheinen (Klasse statt Kennung,
+     damit der Hohe Kontrast weiter seinen Grund setzt) */
+  .platte.kartenplatte { background: rgba(12, 16, 25, 0.92); }
+  #karte { display: block; width: var(--karte); height: var(--karte); }
+  /* Mit Finger: unten liegen die Bedienflächen. Das Tempo rückt unter Platz und Runde, die Karte rechts unter die Zeit
+     (die Lenkzone liegt unten links). Die Oberkante der Karte setzt das Skript nach der Höhe der Zeit-Platte. */
+  :root.beruehrung #platte-tempo { left: calc(var(--hp) * 6); top: calc(var(--hp) * 24.5); bottom: auto; }
+  :root.beruehrung #buehne { --karte: calc(var(--hp) * 38); }
+  :root.beruehrung #platte-karte { left: auto; right: calc(var(--hp) * 6); bottom: auto; top: var(--karte-oben, calc(var(--hp) * 38)); }
 
   /* Startampel: fünf Lichter, gehen nacheinander an und zusammen aus. Gedämpftes Rot, kein Leuchten, kein Blinken. */
   #ampel { left: 50%; top: calc(var(--hp) * 6); transform: translateX(-50%); display: flex; gap: calc(var(--hp) * 2.4); padding: calc(var(--hp) * 3) calc(var(--hp) * 4.6); transition: opacity 0.4s ease; }
@@ -338,7 +348,9 @@
 
   /* Streckenwahl: Karten mit einem Streifen aus Himmel, Dunst und Boden der Strecke */
   .knopf.karte { display: flex; flex-direction: column; min-width: 0; padding: 10px 10px 12px; text-align: left; }
-  .karte .streifen { display: block; height: 54px; margin-bottom: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35); }
+  .karte .streifen { position: relative; display: block; height: 112px; margin-bottom: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35); overflow: hidden; }
+  /* Die Strecke von oben, Norden oben, mit Start und Ziel und einem Pfeil in Fahrtrichtung (karte.js) */
+  .karte .streifen canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .karte b { display: block; font: 600 19px/1.15 var(--sb-schrift-schild); color: var(--sb-text); }
   .karte small { display: block; margin-top: 4px; font: 400 13px/1.3 var(--sb-schrift-text); color: var(--sb-text-still); font-variant-numeric: tabular-nums lining-nums; }
   .karte[aria-pressed="true"] b { color: var(--sb-weissgold); }
@@ -475,6 +487,7 @@
     #touch-turbo { right: calc(14px + 21vw + 10px); bottom: calc(14px + 124px + 12px); width: 19vw; height: 52px; }
     #touch-pause { left: auto; right: 14px; top: auto; bottom: calc(14px + 176px + 14px); }
     #platte-zeit .zeile { display: none; }
+    :root.beruehrung #buehne { --karte: calc(var(--hp) * 34); }
   }
 
   /* ---------- Kleine Fenster ---------- */
@@ -491,7 +504,7 @@
     .wahl-titel, .einst-tafel h3 { margin-bottom: 6px; font-size: 10.5px; }
     .strecken { gap: 8px; }
     .knopf.karte { padding: 7px 8px 8px; }
-    .karte .streifen { height: 24px; margin-bottom: 6px; }
+    .karte .streifen { height: 52px; margin-bottom: 6px; }
     .karte b { font-size: 15px; }
     .karte small { font-size: 11.5px; margin-top: 1px; }
     .unterzeile { margin-top: 6px; font-size: 13px; }
@@ -520,7 +533,7 @@
     .tafel h2 { font-size: 22px; }
     .strecken { gap: 8px; }
     .knopf.karte { padding: 7px 7px 8px; }
-    .karte .streifen { height: 30px; }
+    .karte .streifen { height: 66px; }
     .karte b { font-size: 14.5px; }
     .karte small { font-size: 11px; }
     .zeile2 { grid-template-columns: 1fr; gap: 14px; margin-top: 16px; }
@@ -589,6 +602,7 @@
   :root[data-vision="contrast"] .balken > i { background: var(--sb-text); }
   :root[data-vision="contrast"] #platte-tempo .schimmer { background: none; box-shadow: inset 0 0 0 2px var(--sb-petrol); }
   :root[data-vision="contrast"] .balken.akku::after { background: var(--sb-signal); width: 2px; }
+  :root[data-vision="contrast"] .karte .streifen { box-shadow: inset 0 0 0 1px var(--sb-kante); }
   :root[data-vision="contrast"] .auswahl select { background: var(--sb-feld); border-color: var(--sb-kante); }
   :root[data-vision="contrast"] .ergebnis-tafel th { border-bottom-color: var(--sb-kante); }
   :root[data-vision="contrast"] .ergebnis-tafel tr.du td { background: transparent; color: var(--sb-text); font-weight: 700; }
@@ -636,6 +650,7 @@
     </div>
     <div class="platte" id="platte-tempo"><i class="schimmer" aria-hidden="true"></i><span class="wert" id="tempo">0</span><span class="einheit" data-i="kmh">km/h</span><div class="balken"><i id="balken"></i></div>
       <div class="akku-zeile"><span class="etikett" data-i="akku">Akku</span><div class="balken akku" id="akku-balken"><i id="akku"></i></div></div></div>
+    <div class="platte kartenplatte" id="platte-karte" role="img" aria-label="Streckenkarte" data-i-aria="aria_karte"><canvas id="karte" aria-hidden="true"></canvas></div>
     <div class="platte" id="platte-bot" hidden><span class="etikett" data-i="bot">Bot am Steuer</span></div>
     <div class="platte" id="ampel" hidden role="img" aria-label="Startampel" data-i-aria="aria_ampel"><i></i><i></i><i></i><i></i><i></i></div>
   </div>
@@ -755,11 +770,12 @@
 <script src="rennen.js"></script>
 <script src="deko.js"></script>
 <script src="grafik.js"></script>
+<script src="karte.js"></script>
 <script src="ton.js"></script>
 <script>
 (function () {
   "use strict";
-  const S = window.Strecke, P = window.Physik, R = window.Rennen, G = window.Grafik, T = window.Ton, SP = window.Sprachen;
+  const S = window.Strecke, P = window.Physik, R = window.Rennen, G = window.Grafik, T = window.Ton, SP = window.Sprachen, K = window.Karte;
   const FREI_RUNDEN = 3; // freie Fahrt (?start): Runde x/3 als Trainingsserie wie in M1
   const wurzel = document.documentElement;
   const el = (id) => document.getElementById(id);
@@ -854,6 +870,12 @@
     ({ strecke, grafik } = gebaut.get(id));
     grafik.setzeModus(darstJetzt);
   }
+  // Kartendaten je Strecke (karte.js), auch für Strecken, die noch nicht gefahren wurden
+  const kartenDaten = new Map();
+  function karteVon(id) {
+    if (!kartenDaten.has(id)) kartenDaten.set(id, K.erzeuge(gebaut.has(id) ? gebaut.get(id).strecke : S.baue(S.PLAENE[id])));
+    return kartenDaten.get(id);
+  }
   streckeSetzen(parameter.get("strecke") || lesen("streckenblitz.strecke") || S.REIHE[0]);
   const startSegment = () => Math.max(0, Math.min(strecke.anzahl - 1, Math.floor(Number(parameter.get("start")) || 0)));
 
@@ -922,10 +944,94 @@
     buehne.style.setProperty("--gp", (leinwand.width / dpr / G.B) + "px");
     buehne.style.top = hoch ? (leinwand.height / dpr / 2 + 12) + "px" : "calc(50% - " + hilfe / 2 + "px)";
     sicht.imageSmoothingEnabled = false;
+    karteGroesse();
     neuZeichnen = true;
   }
   let neuZeichnen = true;
-  window.addEventListener("resize", () => { groesse(); querPruefen(); });
+  window.addEventListener("resize", () => { groesse(); querPruefen(); if (zustand === "menue") wahlKartenZeichnen(); });
+
+  // --- Streckenkarte: scharf in Gerätepixeln, nicht im kleinen Spielbild -----------------------------
+  const karteLeinwand = el("karte"), karteSicht = karteLeinwand.getContext("2d");
+  let karteStand = null; // Winkel und Stelle deines Wagens im letzten Bild der Karte (für Prüfungen)
+  const nummernStand = {}; // Startnummern auf der Karte: sichtbar oder weg, und seit wann (wechselt höchstens alle 0,5 s)
+  // Mit Finger steht die Karte rechts unter der Zeit-Platte (deren Höhe hängt von Modus und Schrift ab) und über der
+  // Bremse; reicht der Platz dazwischen nicht für die volle Größe aus dem CSS, wird sie kleiner. Danach bekommt die
+  // Leinwand der Karte genau so viele Pixel, wie das Gerät zeigt.
+  function karteGroesse() {
+    const versteckt = finger && !mitBot && el("touch").hidden && buehne.style.getPropertyValue("--karte");
+    if (!versteckt) {
+      // (sind die Bedienflächen gerade versteckt, etwa in der Pause, bleibt die Größe, damit die Karte nicht springt)
+      buehne.style.removeProperty("--karte");
+      buehne.style.removeProperty("--karte-oben");
+    }
+    if (finger && !versteckt) {
+      const platte = el("platte-karte"), zeit = el("platte-zeit"), hp = parseFloat(getComputedStyle(platte).paddingTop) / 2.2;
+      const oben = zeit.offsetTop + zeit.offsetHeight + hp * 3;
+      let unten = leinwand.offsetHeight - hp * 3;
+      const bremse = el("touch-bremse").getBoundingClientRect();
+      if (!el("touch").hidden && bremse.height) unten = Math.min(unten, bremse.top - buehne.getBoundingClientRect().top - hp * 3);
+      const voll = karteLeinwand.getBoundingClientRect().width, rahmen = platte.offsetHeight - voll;
+      buehne.style.setProperty("--karte", Math.max(hp * 22, Math.min(voll, unten - oben - rahmen)) + "px");
+      buehne.style.setProperty("--karte-oben", oben + "px");
+    }
+    const dpr = window.devicePixelRatio || 1, r = karteLeinwand.getBoundingClientRect();
+    const b = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (karteLeinwand.width !== b || karteLeinwand.height !== h) {
+      karteLeinwand.width = b;
+      karteLeinwand.height = h;
+      neuZeichnen = true;
+    }
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { karteGroesse(); if (zustand === "menue") wahlKartenZeichnen(); });
+  // Farben aus den Farben der Seite, damit Hoher Kontrast, Farbenblind und Umkehr von selbst folgen
+  const hexMisch = (a, b, t) => {
+    const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
+    const k = (s) => Math.round(((x >> s) & 255) + (((y >> s) & 255) - ((x >> s) & 255)) * t);
+    return "rgb(" + k(16) + "," + k(8) + "," + k(0) + ")";
+  };
+  let kartenFarbenCache = null;
+  function kartenFarben() {
+    if (kartenFarbenCache && kartenFarbenCache.modus === darstJetzt) return kartenFarbenCache;
+    const css = getComputedStyle(wurzel), v = (n) => css.getPropertyValue(n).trim();
+    const hc = darstJetzt === "hc-dunkel" || darstJetzt === "hc-hell";
+    const schrift = v("--sb-schrift-schild");
+    const mini = hc
+      ? { saum: null, linie: v("--sb-text"), linieBreite: 2, ziel: v("--sb-signal"), zielBreite: 3, du: v("--sb-petrol"), duRand: v("--sb-text"),
+        ring: v("--sb-text"), hof: v("--sb-platte"), nummer: v("--sb-text"), schrift }
+      : { saum: "rgba(3, 5, 10, 0.72)", saumBreite: 5.4, linie: hexMisch(v("--sb-text-leise"), "#10151F", 0.12), linieBreite: 2.1,
+        ziel: v("--sb-weissgold"), zielBreite: 2.4, du: v("--sb-petrol"), duRand: v("--sb-weissgold"),
+        ring: "rgba(3, 5, 10, 0.9)", hof: "rgba(8, 11, 18, 0.92)", nummer: v("--sb-text"), schrift };
+    const wahl = hc
+      ? { grund: v("--sb-feld"), saum: null, linie: v("--sb-text"), linieBreite: 2, ziel: v("--sb-signal"), zielBreite: 3.2, pfeil: v("--sb-signal") }
+      : { grund: "rgba(8, 10, 17, 0.58)", saum: "rgba(3, 5, 10, 0.75)", saumBreite: 5.6, linie: hexMisch(v("--sb-weissgold"), "#8790A8", 0.42), linieBreite: 2.2,
+        ziel: v("--sb-weissgold"), zielBreite: 2.6, pfeil: v("--sb-signal") };
+    kartenFarbenCache = { modus: darstJetzt, mini, wahl, hc };
+    return kartenFarbenCache;
+  }
+  // Punktfarbe eines Gegners auf der Karte: seine Farbe, aufgehellt, damit der Punkt auf der dunklen Platte steht
+  function kartenPunktFarbe(i) {
+    if (darstJetzt === "farbenblind") return G.CVD_FARBEN[i];
+    return hexMisch(R.FAHRER[i].farbe, "#DAD4C4", 0.32);
+  }
+  function minikarteZeichnen(ich, gegner) {
+    const f = kartenFarben();
+    karteStand = K.zeichneMini(karteSicht, karteVon(strecke.id), {
+      breite: karteLeinwand.width, hoehe: karteLeinwand.height, d: window.devicePixelRatio || 1, z: ich.z, x: ich.x,
+      gegner: gegner.map((g) => ({ z: g.z, x: g.x, farbe: kartenPunktFarbe(g.nr), nummer: R.FAHRER[g.nr].nummer })),
+      farben: f.mini, nummern: f.hc || darstJetzt === "farbenblind", stand: nummernStand, zeit: performance.now() / 1000,
+    });
+  }
+  // Große Karten in der Streckenwahl, still und Norden oben
+  function wahlKartenZeichnen() {
+    const dpr = window.devicePixelRatio || 1, f = kartenFarben();
+    for (const c of document.querySelectorAll("#streckenwahl canvas")) {
+      const r = c.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      c.width = Math.round(r.width * dpr);
+      c.height = Math.round(r.height * dpr);
+      K.zeichneUebersicht(c.getContext("2d"), karteVon(c.dataset.karte), { breite: c.width, hoehe: c.height, d: dpr, farben: f.wahl });
+    }
+  }
 
   // --- Zustand ---------------------------------------------------------------------
   // zustand: menue, einstellungen, fahrt, pause, ergebnis
@@ -968,6 +1074,7 @@
     menueTexte();
     wahlZeigen();
     zeigeTafel("menue");
+    wahlKartenZeichnen();
     neuZeichnen = true;
   }
   function einstellungenZeigen() {
@@ -987,6 +1094,10 @@
       ", " + f.dunst + " 66%, " + f.gras[0] + " 70%, " + f.gras[0] + " 100%)";
     const name = document.createElement("b");
     name.textContent = plan.name;
+    const bildKarte = document.createElement("canvas");
+    bildKarte.dataset.karte = id;
+    bildKarte.setAttribute("aria-hidden", "true");
+    streifen.appendChild(bildKarte);
     const rek = document.createElement("small");
     rek.className = "karten-rekord";
     k.append(streifen, name, rek);
@@ -1163,6 +1274,7 @@
   }
   function bedienungZeigen() {
     el("touch").hidden = !(finger && zustand === "fahrt" && !mitBot);
+    karteGroesse();
   }
 
   // --- Hochkant mit Finger: ruhiger Hinweis, „Trotzdem spielen“ gilt für diesen Besuch -----------
@@ -1207,6 +1319,7 @@
     el("ampel").hidden = rennen.modus === "frei";
     el("ampel").classList.remove("weg");
     for (const l of el("ampel").children) l.classList.remove("an");
+    karteGroesse();
   }
   function rundenText(a) {
     if (rennen.modus === "frei") return ((a.runde - 1) % FREI_RUNDEN) + 1 + "/" + FREI_RUNDEN;
@@ -1358,6 +1471,7 @@
     }
     grafik.zeichne({ z: ich.z, x: ich.x, lenk: ich.lenk, untergrund: rennen.spieler.untergrund, gegner });
     sicht.drawImage(grafik.bild, 0, 0, leinwand.width, leinwand.height);
+    minikarteZeichnen(ich, gegner);
   }
   let zuletzt = null;
   function bild(jetzt) {
@@ -1400,6 +1514,7 @@
     darstJetzt = modus;
     for (const g of gebaut.values()) g.grafik.setzeModus(modus);
     neuZeichnen = true;             // Seite und Spielbild wechseln im selben Bild
+    if (zustand === "menue") wahlKartenZeichnen();
     requestAnimationFrame(() => requestAnimationFrame(() => wurzel.classList.remove("ohne-uebergang")));
   }
   function darstFolgen() {
@@ -1508,6 +1623,9 @@
     get zustand() { return zustand; },
     get sprache() { return sprache; },
     get darstellung() { return darstJetzt; },
+    get karte() { return karteStand; },
+    get kartenDaten() { return karteVon(strecke.id); },
+    get kartenFarben() { return kartenFarben(); },
   };
 })();
 </script>
