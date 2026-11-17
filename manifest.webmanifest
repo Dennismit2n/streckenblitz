@@ -1,0 +1,20 @@
+{
+  "name": "Streckenblitz",
+  "short_name": "Streckenblitz",
+  "description": "Formel-Rennspiel im Browser: Pixelraster mit vollen Farben, drei Strecken, sieben Gegner, Zeitfahren. Dunkel, ohne Blitze, auch offline. Formula racing in your browser, dark, no flashing, works offline.",
+  "lang": "de",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0A0D15",
+  "theme_color": "#0A0D15",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

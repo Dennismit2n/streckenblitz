@@ -11,6 +11,10 @@
 // Bot fährt auf allen drei Strecken ein Rennen, Flimmer-Messung auf allen drei Strecken bei Höchsttempo.
 // Fotos (Startampel, Pulk, Ergebnis, Menü, Pause, Zeitfahren) landen im Fotoordner (Vorgabe fotos/spiel).
 // Die Fotos der drei Strecken macht werkzeuge/foto.mjs (Szene strecken).
+// Hülle (M4): Service Worker und Manifest, Sprachen de, en, ja (alle Texte), Auswahlfeld, Sehhilfen mit Kontrast der
+// Menüschriften, Hoher Kontrast und Farbenblind im Spielbild, Darstellung höchstens alle 1,5 s, Gamepad (untergeschoben),
+// Touch auf dem Handy quer, Hinweis hochkant. Fotos in <fotoordner>/m4: Menü, Einstellungen, Rennen, Pause, Ergebnis bei
+// 1440 × 900, 844 × 390 quer und 390 × 844 hochkant; Englisch und Japanisch; jede Sehhilfe mit Menü und Rennen.
 // Ausgabe endet mit „SPIEL: BESTANDEN“ und Exit 0, sonst „SPIEL: DURCHGEFALLEN“ und Exit 1.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -76,8 +80,10 @@ async function js(code) {
   if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails.exception?.description || r.exceptionDetails.text));
   return r.result.value;
 }
+// Ohne eigene Angabe läuft jede Seite auf Deutsch (?sprache=de gilt nur für den Aufruf und wird nicht gespeichert)
+const mitSprache = (suche) => (/sprache=/.test(suche) ? suche : (suche ? suche + "&" : "?") + "sprache=de");
 async function laden(suche) {
-  await cdp("Page.navigate", { url: BASIS + suche });
+  await cdp("Page.navigate", { url: BASIS + mitSprache(suche) });
   await warte(1200);
 }
 async function foto(datei) {
@@ -243,8 +249,8 @@ try {
     for (const z of tab) console.log("  " + z.join(" | "));
     pruefe(tab.length === 8, "Ergebnistabelle mit 8 Zeilen (" + tab.length + ")");
     pruefe(tab.map((z) => z[0]).join(",") === "1.,2.,3.,4.,5.,6.,7.,8.", "Plätze 1 bis 8 eindeutig");
-    pruefe(/^\d:\d\d\.\d\d$/.test(tab[0][3]) && tab.slice(1).every((z) => /^\+\d+,\d\d s$|^\+\d:\d\d\.\d\d$/.test(z[3])), "Sieger mit Gesamtzeit, alle anderen mit Rückstand");
-    pruefe(tab.every((z) => /^\d:\d\d\.\d\d$/.test(z[4])), "jede Zeile mit bester Runde");
+    pruefe(/^\d:\d\d,\d\d$/.test(tab[0][3]) && tab.slice(1).every((z) => /^\+\d+,\d\d s$|^\+\d:\d\d,\d\d$/.test(z[3])), "Sieger mit Gesamtzeit, alle anderen mit Rückstand (deutsches Dezimalkomma)");
+    pruefe(tab.every((z) => /^\d:\d\d,\d\d$/.test(z[4])), "jede Zeile mit bester Runde");
     pruefe(new Set(tab.map((z) => z[2])).size === 8 && tab.some((z) => z[2] === "Du"), "acht verschiedene Fahrer, darunter du");
     pruefe(await js(`[...document.querySelectorAll("#ergebnis-zeilen .nummer")].filter((n) => /^\\d+$/.test(n.textContent)).length === 7`), "jeder Gegner hat seine Startnummer in der Tabelle");
     await warte(600); // Anzeigen fertig ausgeblendet
@@ -270,8 +276,8 @@ try {
     await foto("zeitfahren-1440.png");
     await laden("?strecke=moewenkap");
     const andere = await js(`document.querySelector('[data-strecke="mondsenke"] .karten-rekord').textContent`);
-    pruefe(andere === "noch keiner", "Bestzeit gilt je Strecke: Mondsenke hat noch keine");
-    pruefe(await js(`document.querySelector('[data-strecke="moewenkap"] .karten-rekord').textContent`) === await js(`(() => { const t = Number(localStorage.getItem("streckenblitz.rekord.moewenkap")); const h = Math.round(t * 100); return Math.floor(h / 6000) + ":" + String(Math.floor(h / 100) % 60).padStart(2, "0") + "." + String(h % 100).padStart(2, "0"); })()`), "Menü zeigt den gespeicherten Rekord");
+    pruefe(andere === "Rekord: noch keiner", "Bestzeit gilt je Strecke: Mondsenke hat noch keine");
+    pruefe(await js(`document.querySelector('[data-strecke="moewenkap"] .karten-rekord').textContent`) === await js(`(() => { const t = Number(localStorage.getItem("streckenblitz.rekord.moewenkap")); const h = Math.round(t * 100); return "Rekord " + Math.floor(h / 6000) + ":" + String(Math.floor(h / 100) % 60).padStart(2, "0") + "," + String(h % 100).padStart(2, "0"); })()`), "Menü zeigt den gespeicherten Rekord");
   }
 
   console.log("Rennen auf den anderen Strecken");
@@ -385,6 +391,266 @@ try {
   await laden("?bot=1&start=1500");
   pruefe(await js(`${SB}.rennen.modus === "frei" && getComputedStyle(document.getElementById("ampel")).display === "none" && getComputedStyle(document.getElementById("block-platz")).display === "none"`), "freie Fahrt (?start): ohne Ampel und ohne Platz");
   pruefe(await js(`${SB}.rennen.spieler.tempo > 0`), "freie Fahrt beginnt sofort");
+
+  // ---------------------------------------------------------------------------------------------
+  // Meilenstein 4, Hülle: PWA, Sprachen, Sehhilfen, Kontrast, Gamepad, Touch, Hochkant und die Fotomatrix
+  // ---------------------------------------------------------------------------------------------
+  const ANSICHTEN = {
+    desktop: { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    quer: { width: 844, height: 390, deviceScaleFactor: 3, mobile: true, screenOrientation: { type: "landscapePrimary", angle: 90 } },
+    hoch: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true, screenOrientation: { type: "portraitPrimary", angle: 0 } },
+  };
+  async function ansicht(name) {
+    const a = ANSICHTEN[name];
+    await cdp("Emulation.setDeviceMetricsOverride", a);
+    await cdp("Emulation.setTouchEmulationEnabled", a.mobile ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
+    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "pointer", value: a.mobile ? "coarse" : "fine" }, { name: "hover", value: a.mobile ? "none" : "hover" }] });
+  }
+  // Fährt mit der Logik des Bots über die Eingabe der Bedienflächen (die Flächen bleiben sichtbar, anders als bei ?bot=1)
+  const SELBST_FAHREN = `(() => { const sb = ${SB}; (function f() { if (sb.zustand === "fahrt") { const e = Physik.botEingabe(sb.auto, sb.strecke, 0.9);
+    sb.beruehrung.gas = e.gas; sb.beruehrung.bremse = e.bremse; sb.beruehrung.lenken = e.lenken; } requestAnimationFrame(f); })(); return true; })()`;
+  // Hochkant: der Hinweis „quer halten“ steht da, „Trotzdem spielen“ blendet ihn aus
+  async function trotzdem() { await js(`(() => { const q = document.getElementById("quer"); if (!q.hidden) document.getElementById("quer-trotzdem").click(); return true; })()`); await warte(250); }
+  const lokal = /^https?:/.test(BASIS);
+  async function fotoAls(datei) {
+    fs.mkdirSync(path.dirname(path.join(ziel, datei)), { recursive: true });
+    await foto(datei);
+  }
+
+  console.log("PWA");
+  await ansicht("desktop");
+  await laden("");
+  if (lokal) {
+    const sw = await js(`(async () => {
+      const bereit = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 8000))]);
+      const namen = await caches.keys();
+      const inhalt = namen.includes("streckenblitz-v1") ? (await (await caches.open("streckenblitz-v1")).keys()).length : 0;
+      return { aktiv: !!(bereit && bereit.active), bereich: bereit ? bereit.scope : "", caches: namen, inhalt }; })()`);
+    console.log("  Service Worker: " + JSON.stringify(sw));
+    pruefe(sw.aktiv && /127\.0\.0\.1:8644\/$/.test(sw.bereich), "Service Worker registriert und aktiv (Bereich " + sw.bereich + ")");
+    pruefe(sw.caches.includes("streckenblitz-v1") && sw.inhalt >= 16, "Cache streckenblitz-v1 mit allen Dateien (" + sw.inhalt + " Einträge)");
+    const mf = await js(`(async () => { const l = document.querySelector('link[rel="manifest"]'); const m = await (await fetch(l.href)).json();
+      const icons = await Promise.all(m.icons.map(async (i) => (await fetch(i.src)).status));
+      return { orientation: m.orientation, display: m.display, name: m.name, icons, start: m.start_url }; })()`);
+    console.log("  Manifest: " + JSON.stringify(mf));
+    pruefe(mf.orientation === "landscape" && mf.display === "fullscreen" && mf.name === "Streckenblitz" && mf.icons.length === 4 && mf.icons.every((s) => s === 200), "Manifest quer, Vollbild, vier Icons erreichbar");
+    pruefe(await js(`!!document.querySelector('link[rel="apple-touch-icon"]') && !!document.querySelector('link[rel="icon"][type="image/svg+xml"]')`), "favicon.svg und apple-touch-icon eingebunden");
+  } else {
+    pruefe(await js(`!document.querySelector('link[rel="manifest"]')`), "file://: kein Manifest, kein Service Worker (sonst Fehler in der Konsole)");
+  }
+
+  console.log("Sprachen");
+  for (const code of ["de", "en", "ja"]) {
+    await laden("?sprache=" + code + "&strecke=moewenkap");
+    const s = await js(`(() => { const SP = window.Sprachen, c = ${JSON.stringify(code)};
+      const falsch = [...document.querySelectorAll("[data-i]")].filter((e) => e.textContent !== SP.text(c, e.dataset.i)).map((e) => e.dataset.i);
+      const aria = [...document.querySelectorAll("[data-i-aria]")].filter((e) => e.getAttribute("aria-label") !== SP.text(c, e.dataset.iAria)).map((e) => e.dataset.iAria);
+      return { lang: document.documentElement.lang, titel: document.title === SP.text(c, "titel"), falsch, aria, los: document.getElementById("los").textContent,
+        ton: document.getElementById("ton").textContent === SP.text(c, "ton_aus") || document.getElementById("ton").textContent === SP.text(c, "ton_an"),
+        unter: document.getElementById("menue-unterzeile").textContent, zeit: document.getElementById("letzte").textContent }; })()`);
+    pruefe(s.lang === code && s.titel && !s.falsch.length && !s.aria.length && s.ton, code + ": Seite, Titel und alle " + "Texte übersetzt (Los: " + s.los + ", " + s.unter + ", Platzhalter " + s.zeit + ")" + (s.falsch.length ? " falsch: " + s.falsch.join(",") : ""));
+  }
+  pruefe(await js(`document.getElementById("letzte").textContent`) === "-:--.--", "ja: Zeiten mit Punkt als Dezimalzeichen");
+  // Auswahlfeld: Französisch wählen, alles wechselt sofort, die Wahl wird gespeichert
+  await laden("?sprache=de");
+  await js(`(() => { const a = document.getElementById("sprache"); a.value = "fr"; a.dispatchEvent(new Event("change")); return true; })()`);
+  const fr = await js(`[document.documentElement.lang, document.getElementById("los").textContent, localStorage.getItem("streckenblitz.lang"), document.title]`);
+  pruefe(fr[0] === "fr" && fr[1] === "Départ" && fr[2] === "fr", "Auswahlfeld wechselt sofort auf Französisch und speichert (" + fr[1] + ", " + fr[3] + ")");
+  await js(`localStorage.removeItem("streckenblitz.lang")`);
+  const erkannt = await js(`Sprachen.erkenne(null, ["pt-BR", "de"]) + " " + Sprachen.erkenne(null, ["sv-SE"]) + " " + Sprachen.erkenne("ko", ["de"])`);
+  pruefe(erkannt === "pt en ko", "Erkennung: pt-BR wird pt, Unbekanntes wird en, gespeicherte Wahl gewinnt (" + erkannt + ")");
+
+  console.log("Sehhilfen und Kontrast");
+  const MODI = [["normal", "system"], ["hc-dunkel", "hc-dark"], ["hc-hell", "hc-light"], ["farbenblind", "cvd-dark"], ["umkehr", "invert"]];
+  // Kontrast aller festen Schriften der Menüplatte gegen ihren Grund (Durchsicht der Platte vernachlässigt)
+  const KONTRAST = `(() => {
+    const zahl = (c) => { const m = c.match(/[\\d.]+/g).map(Number); return c.startsWith("color(") ? m.slice(0, 3).map((v) => v * 255) : m.slice(0, 3); };
+    const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; const [r, g, b] = zahl(c); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const verh = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    const grund = getComputedStyle(document.querySelector(".menue-tafel")).backgroundColor;
+    const feld = getComputedStyle(document.querySelector('[data-modus="zeitfahren"]')).backgroundColor;
+    const liste = [[".wahl-titel", grund], [".karte:not([aria-pressed=true]) small", grund], [".unterzeile", grund], [".tasten", grund],
+      ['[data-modus="zeitfahren"]', feld], ['[data-modus="rennen"]', getComputedStyle(document.querySelector('[data-modus="rennen"]')).backgroundColor]];
+    return liste.map(([sel, bg]) => [sel, +verh(getComputedStyle(document.querySelector(sel)).color, bg).toFixed(2)]); })()`;
+  for (const [modus, wert] of MODI) {
+    await laden("?strecke=moewenkap");
+    await js(`localStorage.setItem("werkstatt.darstellung", ${JSON.stringify(wert)})`);
+    await laden("?strecke=moewenkap");
+    const z = await js(`[${SB}.darstellung, ${SB}.grafik.modus, document.documentElement.getAttribute("data-vision"), document.getElementById("darstellung").value]`);
+    pruefe(z[0] === modus && z[1] === modus, modus + ": Seite und Spielbild in derselben Darstellung (" + z.join(", ") + ")");
+    if (modus !== "umkehr") {
+      const k = await js(KONTRAST);
+      const schwach = k.filter(([, v]) => v < 4.5);
+      pruefe(!schwach.length, modus + ": alle Menüschriften mindestens 4,5:1 (kleinster Wert " + Math.min(...k.map(([, v]) => v)) + ")" + (schwach.length ? " zu schwach: " + JSON.stringify(schwach) : ""));
+    }
+  }
+  // Im Spielbild: Hoher Kontrast macht die Randlinie hell und breit, die Randsteine einfarbig; Farbenblind tauscht die Gegnerfarben
+  const bild = await js(`(() => {
+    const s = ${SB}.strecke, g = Grafik.erzeuge(s, (b, h) => Object.assign(document.createElement("canvas"), { width: b, height: h }), Rennen.FAHRER);
+    const lese = Object.assign(document.createElement("canvas"), { width: 427, height: 240 }).getContext("2d", { willReadFrequently: true });
+    function zaehle(modus) {
+      g.setzeModus(modus);
+      g.zeichne({ z: 3000, x: 0, lenk: 0, untergrund: "strasse", gegner: [] });
+      lese.drawImage(g.bild, 0, 0);
+      const d = lese.getImageData(0, 150, 427, 60).data; let hell = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 600) hell++;
+      return hell; }
+    const farbe = (modus) => { g.setzeModus(modus); const c = g.gegnerBild(0, 0, 30); const x = c.getContext("2d").getImageData(Math.floor(c.width / 2) - 2, Math.floor(c.height * 0.55), 1, 1).data; return [x[0], x[1], x[2]].join(","); };
+    return { normal: zaehle("normal"), hc: zaehle("hc-dunkel"), farbeNormal: farbe("normal"), farbeCvd: farbe("farbenblind"), randHc: (g.setzeModus("hc-dunkel"), g.gegnerBild(0, 0, 30).width - (g.setzeModus("normal"), g.gegnerBild(0, 0, 30).width)) }; })()`);
+  console.log("  Spielbild: " + JSON.stringify(bild));
+  pruefe(bild.hc > bild.normal * 2 && bild.hc > 150, "Hoher Kontrast: deutlich mehr helle Randlinie im unteren Bild (" + bild.hc + " statt " + bild.normal + " Pixel)");
+  pruefe(bild.randHc === 2, "Hoher Kontrast: Autos mit einem Pixel Kontur ringsum");
+  pruefe(bild.farbeNormal !== bild.farbeCvd, "Farbenblind: andere Gegnerfarbe (" + bild.farbeNormal + " wird " + bild.farbeCvd + "), Startnummern bleiben");
+  // Flimmern im Hohen Kontrast (die Randlinie ist hell): dieselbe Messung wie oben auf der Zielgerade von Möwenkap
+  {
+    const m = await js(`(() => { const s = ${SB}.strecke; const g = Grafik.erzeuge(s, (b, h) => Object.assign(document.createElement("canvas"), { width: b, height: h }), Rennen.FAHRER); g.setzeModus("hc-dunkel");
+      return (${MESSUNG})(g, s, s.stuecke.find((x) => x.name === "Zielgerade, erste Hälfte").von); })()`);
+    pruefe(m.feldAmp < 0.01 && m.ganzAmp < 0.01, "Hoher Kontrast: kein Flimmern über 3 Hz (größte Schwankung " + m.feldAmp + " bei " + m.feldHz + " Hz)");
+  }
+  // Auswahlfeld: zwei Wechsel kurz hintereinander, der zweite kommt frühestens 1,5 s nach dem ersten
+  await js(`localStorage.setItem("werkstatt.darstellung", "system")`);
+  await laden("");
+  const wechsel = await js(`(async () => { const f = document.getElementById("darstellung"), t0 = performance.now(), log = [];
+    const mo = new MutationObserver(() => log.push([Math.round(performance.now() - t0), document.documentElement.getAttribute("data-vision")]));
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-vision"] });
+    f.value = "hc-dark"; f.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 200));
+    f.value = "cvd"; f.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 2200)); mo.disconnect();
+    const aenderungen = log.filter((x, i) => i === 0 || x[1] !== log[i - 1][1]);
+    return { log: aenderungen, gespeichert: localStorage.getItem("werkstatt.darstellung") }; })()`);
+  const zeiten = wechsel.log.filter(([, v]) => v).map(([t]) => t);
+  pruefe(wechsel.log.at(-1)[1] === "cvd" && zeiten.length >= 2 && zeiten[zeiten.length - 1] - zeiten[0] >= 1450, "Darstellung wechselt höchstens alle 1,5 s, der neueste Wunsch gilt (" + JSON.stringify(wechsel.log) + ", gespeichert " + wechsel.gespeichert + ")");
+  await js(`localStorage.setItem("werkstatt.darstellung", "system")`);
+
+  console.log("Gamepad");
+  const padSkript = await cdp("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
+    const knoepfe = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
+    window.__pad = { id: "Testpad", index: 0, connected: true, mapping: "standard", axes: [0, 0, 0, 0], buttons: knoepfe, timestamp: 0 };
+    Object.defineProperty(navigator, "getGamepads", { value: () => [window.__pad, null, null, null] }); })()` });
+  await laden("?modus=frei&strecke=moewenkap");
+  await js(`(() => { __pad.axes[0] = 0.1; return true; })()`);
+  await warte(200);
+  const totzone = await js(`${SB}.pad.lenken`);
+  await js(`(() => { __pad.axes[0] = 0.8; __pad.buttons[7].value = 1; __pad.buttons[7].pressed = true; return true; })()`);
+  await warte(1500);
+  const p1 = await js(`[${SB}.auto.tempo * 0.026, ${SB}.auto.lenk, ${SB}.pad.lenken]`);
+  pruefe(totzone === 0, "Gamepad: Stick 0,1 liegt in der Totzone (lenken " + totzone + ")");
+  pruefe(p1[0] > 60 && p1[1] > 0.2 && p1[2] > 0.7 && p1[2] < 0.8, "Gamepad: rechter Trigger gibt Gas (" + p1[0].toFixed(0) + " km/h), Stick lenkt analog (" + p1[2].toFixed(3) + ")");
+  await js(`(() => { __pad.axes[0] = 0; __pad.buttons[7].value = 0; __pad.buttons[7].pressed = false; __pad.buttons[6].value = 1; __pad.buttons[6].pressed = true; return true; })()`);
+  await warte(600);
+  const p2 = await js(`${SB}.auto.tempo * 0.026`);
+  pruefe(p2 < p1[0] - 20, "Gamepad: linker Trigger bremst (" + p2.toFixed(0) + " km/h)");
+  await js(`(() => { __pad.buttons[6].value = 0; __pad.buttons[6].pressed = false; __pad.buttons[9].pressed = true; return true; })()`);
+  await warte(200);
+  await js(`(() => { __pad.buttons[9].pressed = false; return true; })()`);
+  await warte(200);
+  const p3 = await js(`${SB}.zustand`);
+  await js(`(() => { __pad.buttons[9].pressed = true; return true; })()`);
+  await warte(200);
+  await js(`(() => { __pad.buttons[9].pressed = false; return true; })()`);
+  await warte(200);
+  pruefe(p3 === "pause" && await js(`${SB}.zustand`) === "fahrt", "Gamepad: Start hält an und fährt weiter");
+  await cdp("Page.removeScriptToEvaluateOnNewDocument", { identifier: padSkript.identifier });
+
+  console.log("Touch");
+  await ansicht("quer");
+  await laden("?modus=frei&strecke=moewenkap");
+  const t0 = await js(`[!document.getElementById("touch").hidden, document.documentElement.classList.contains("beruehrung"), getComputedStyle(document.querySelector(".hilfe")).display]`);
+  pruefe(t0[0] && t0[1] && t0[2] === "none", "Handy quer: Bedienflächen sichtbar, Tastenhilfe ausgeblendet");
+  const mitte = (id) => js(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2, r.width]; })()`);
+  const gas = await mitte("touch-gas"), lenk = await mitte("lenkzone");
+  await cdp("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: gas[0], y: gas[1], id: 1 }] });
+  await warte(1500);
+  const tg = await js(`${SB}.auto.tempo * 0.026`);
+  await cdp("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: gas[0], y: gas[1], id: 1 }, { x: lenk[0] + lenk[2] * 0.3, y: lenk[1], id: 2 }] });
+  await warte(300);
+  const tl = await js(`[${SB}.beruehrung.lenken, ${SB}.auto.lenk, ${SB}.beruehrung.gas]`);
+  await cdp("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await warte(200);
+  const tw = await js(`[${SB}.beruehrung.gas, ${SB}.beruehrung.lenken]`);
+  pruefe(tg > 60, "Touch: Gas halten beschleunigt (" + tg.toFixed(0) + " km/h nach 1,5 s)");
+  pruefe(tl[0] > 0.6 && tl[1] > 0.2 && tl[2] === 1, "Touch: zweiter Finger rechts in der Lenkzone lenkt nach rechts (" + tl[0].toFixed(2) + "), Gas bleibt");
+  pruefe(tw[0] === 0 && tw[1] === 0, "Touch: Finger weg, Gas und Lenkung los");
+  const pz = await mitte("touch-pause");
+  await cdp("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: pz[0], y: pz[1], id: 3 }] });
+  await cdp("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await warte(300);
+  pruefe(await js(`${SB}.zustand === "pause" && document.getElementById("touch").hidden`), "Touch: Pause-Fläche hält an, die Bedienflächen verschwinden");
+
+  console.log("Hochkant");
+  await ansicht("hoch");
+  await laden("");
+  pruefe(await js(`!document.getElementById("quer").hidden`), "Handy hochkant: Hinweis „Bitte quer halten“");
+  await fotoAls("m4/hochkant-hinweis-390-de.png");
+  await trotzdem();
+  pruefe(await js(`document.getElementById("quer").hidden && !document.getElementById("menue").hidden`), "„Trotzdem spielen“ führt ins Menü");
+  await laden("?modus=frei");
+  pruefe(await js(`${SB}.zustand === "pause" && !document.getElementById("quer").hidden`), "Fahrt beginnt hochkant angehalten, solange der Hinweis steht");
+  await trotzdem();
+  await js(`document.getElementById("weiter").click()`);
+  const hochBild = await js(`(() => { const r = document.getElementById("leinwand").getBoundingClientRect(); return [Math.round(r.top), Math.round(r.width), !document.getElementById("touch").hidden]; })()`);
+  pruefe(hochBild[1] >= 380 && hochBild[0] < 60 && hochBild[2], "Trotzdem hochkant: Bild oben in voller Breite (" + hochBild[1] + " px), Bedienflächen darunter");
+
+  console.log("Fotos");
+  // Je Ansicht Menü, Rennen und Ergebnis auf Deutsch; Englisch und Japanisch am Desktop dazu Menü quer;
+  // jede Sehhilfe einmal mit Menü und Rennen am Desktop; Einstellungen und Pause.
+  async function rennFoto(suche, datei, hoch) {
+    await laden((suche ? suche + "&" : "?") + "modus=rennen&samen=3&strecke=moewenkap");
+    if (hoch) { await trotzdem(); await js(`document.getElementById("weiter").click()`); }
+    await js(SELBST_FAHREN);
+    await bis(`${SB}.rennen.phase === "rennen" && ${SB}.rennen.spieler.zeit > 3.4`, 15000);
+    await fotoAls(datei);
+  }
+  async function ergebnisFoto(suche, datei, hoch) {
+    await laden((suche ? suche + "&" : "?") + "bot=1&zeitraffer=20&samen=5&strecke=moewenkap");
+    if (hoch) { await trotzdem(); await js(`document.getElementById("weiter").click()`); }
+    const ok = await bis(`${SB}.zustand === "ergebnis"`, 90000);
+    await warte(500);
+    if (ok) await fotoAls(datei);
+    return ok;
+  }
+  for (const name of ["desktop", "quer", "hoch"]) {
+    await ansicht(name);
+    const b = name === "desktop" ? "1440" : name === "quer" ? "844x390" : "390x844";
+    const hoch = name === "hoch";
+    await laden("?strecke=moewenkap");
+    if (hoch) await trotzdem();
+    await fotoAls("m4/menue-" + b + "-de.png");
+    const passt = await js(`(() => { const t = document.querySelector("#menue .innen").getBoundingClientRect(); return t.top >= 0 && t.bottom <= innerHeight + 1 && t.left >= 0 && t.right <= innerWidth + 1; })()`);
+    pruefe(passt || hoch, name + ": Menü passt ganz ins Fenster ohne Rollen");
+    await js(`document.getElementById("zu-einstellungen").click()`);
+    await warte(200);
+    await fotoAls("m4/einstellungen-" + b + "-de.png");
+    await rennFoto("", "m4/rennen-" + b + "-de.png", hoch);
+    if (name !== "desktop") pruefe(await js(`!document.getElementById("touch").hidden`), name + ": Bedienflächen im Rennen sichtbar");
+    await js(`document.activeElement && document.activeElement.blur()`);
+    await taste("Escape");
+    await fotoAls("m4/pause-" + b + "-de.png");
+    const ok = await ergebnisFoto("", "m4/ergebnis-" + b + "-de.png", hoch);
+    const passtE = ok && await js(`(() => { const t = document.querySelector("#ergebnis .innen").getBoundingClientRect(); return t.top >= 0 && t.bottom <= innerHeight + 1; })()`);
+    pruefe(ok && passtE, name + ": Ergebnis erreicht und ganz im Fenster");
+  }
+  await ansicht("desktop");
+  for (const code of ["en", "ja"]) {
+    await laden("?sprache=" + code + "&strecke=mondsenke");
+    await fotoAls("m4/menue-1440-" + code + ".png");
+    await rennFoto("?sprache=" + code, "m4/rennen-1440-" + code + ".png", false);
+    const ok = await ergebnisFoto("?sprache=" + code, "m4/ergebnis-1440-" + code + ".png", false);
+    const du = ok ? await js(`[...document.querySelectorAll("#ergebnis-zeilen tr.du td")].map((t) => t.textContent).join(" | ")`) : "";
+    pruefe(ok && du.includes(await js(`Sprachen.text(${JSON.stringify(code)}, "du")`)), code + ": Ergebnis übersetzt (" + du + ")");
+  }
+  await ansicht("quer");
+  for (const code of ["en", "ja"]) { await laden("?sprache=" + code + "&strecke=tannenjoch"); await fotoAls("m4/menue-844x390-" + code + ".png"); }
+  await ansicht("desktop");
+  for (const [modus, wert] of MODI) {
+    await js(`localStorage.setItem("werkstatt.darstellung", ${JSON.stringify(wert)})`);
+    await laden("?strecke=tannenjoch");
+    await fotoAls("m4/menue-1440-" + modus + ".png");
+    await rennFoto("", "m4/rennen-1440-" + modus + ".png", false);
+  }
+  await js(`localStorage.setItem("werkstatt.darstellung", "system")`);
+  await laden("");
 
   console.log("Konsole");
   pruefe(meldungen.length === 0, "keine Fehler und Warnungen in der Konsole" + (meldungen.length ? ":\n    " + meldungen.join("\n    ") : ""));

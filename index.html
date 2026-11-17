@@ -2,14 +2,66 @@
 <html lang="de" dir="ltr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#08080F">
+<meta name="theme-color" content="#0A0D15">
 <meta name="description" content="Streckenblitz ist ein Formel-Rennspiel im Browser: kleines Pixelraster, volle Farben, Abenddämmerung.">
-<title>Streckenblitz</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Streckenblitz</title>
+<!-- Sehhilfen der Werkstatt vor dem ersten Bild (Muster Kugelblitz): dieselbe Wahl wie in allen Werkzeugen
+     (localStorage werkstatt.darstellung, roher Text). Streckenblitz kennt nur seine dunkle Darstellung, darum zählen
+     hier nur die Sehhilfen: data-vision trägt Hoher Kontrast (contrast), Farbenblind (cvd) und Umkehr (invert), data-hc
+     den Grundton des Hohen Kontrasts. „System“ folgt „Kontrast erhöhen“ und dem Kontrastdesign von Windows.
+     Die Farbe der Browserleiste (theme-color) zieht mit. -->
+<script>(function(){var v=null,r=document.documentElement,m=window.matchMedia,f={dark:'#000000',light:'#FFFFFF'},t=null;try{v=localStorage.getItem('werkstatt.darstellung');}catch(e){}var d=!!(m&&m('(prefers-color-scheme: dark)').matches),k=!!(m&&(m('(prefers-contrast: more)').matches||m('(forced-colors: active)').matches));if(v==='hc-dark'||v==='hc-light'){r.setAttribute('data-vision','contrast');r.setAttribute('data-hc',v.slice(3));t=f[v.slice(3)];}else if(v==='cvd-dark'||v==='cvd-light'){r.setAttribute('data-vision','cvd');}else if(v==='invert'){r.setAttribute('data-vision','invert');t='#F0F0DE';}else if(k&&(!v||v==='system')){r.setAttribute('data-vision','contrast');r.setAttribute('data-hc',d?'dark':'light');t=f[d?'dark':'light'];}if(t){var c=document.querySelector('meta[name="theme-color"]');if(c)c.content=t;}})();</script>
+<script src="sprachen.js"></script>
+<script>
+/* Vor dem ersten Bild: Sprache erkennen und Seite darauf einstellen (lang, dir, Titel, Beschreibung, Schriftketten).
+   Gewählt wie bei Kugelblitz: gespeicherte Wahl (streckenblitz.lang), sonst navigator.languages, sonst Englisch.
+   ?sprache=xx gilt nur für diesen Aufruf (Tests und Fotos) und wird nicht gespeichert. */
+(function () {
+  var S = window.Sprachen;
+  var gespeichert = null, aufruf = null;
+  try { gespeichert = localStorage.getItem(S.SCHLUESSEL_SPEICHER); } catch (e) {}
+  try { aufruf = new URLSearchParams(location.search).get("sprache"); } catch (e) {}
+  window.sbDokumentSprache = function (code) {
+    var s = S.sprache(code), d = document.documentElement;
+    d.lang = s.code;
+    d.dir = s.dir;
+    d.style.setProperty("--sb-schrift-text", s.schriftText);
+    d.style.setProperty("--sb-schrift-schild", s.schriftTitel);
+    document.title = S.text(s.code, "titel");
+    var m = document.querySelector('meta[name="description"]');
+    if (m) m.content = S.text(s.code, "beschreibung");
+  };
+  window.sbSprache = S.erkenne(aufruf && S.TEXTE[aufruf] ? aufruf : gespeichert, navigator.languages || [navigator.language || ""]);
+  /* Manifest nur über http(s): Unter file:// (Doppelklick) sperrt der Browser den Abruf und meldet einen Fehler. */
+  if (location.protocol !== "file:") {
+    var l = document.createElement("link");
+    l.rel = "manifest";
+    l.href = "manifest.webmanifest";
+    document.head.appendChild(l);
+  }
+  window.sbDokumentSprache(window.sbSprache);
+  /* Platz für den Knopf „Installieren“: Browser mit beforeinstallprompt bekommen ihn von Anfang an, unsichtbar, damit
+     beim Erscheinen nichts rutscht. Alle anderen (Firefox, Safari, file://, die installierte App) nie. */
+  var alsApp = ["fullscreen", "standalone", "minimal-ui"].some(function (a) { return window.matchMedia && matchMedia("(display-mode: " + a + ")").matches; }) || navigator.standalone === true;
+  if (location.protocol !== "file:" && "onbeforeinstallprompt" in window && !alsApp) document.documentElement.classList.add("install-platz");
+  /* beforeinstallprompt kann kommen, bevor das Skript am Seitenende läuft: hier aufheben (Muster Pocketsum 1.1) */
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();
+    window.sbInstall = e;
+    if (window.sbInstallZeigen) window.sbInstallZeigen();
+  });
+  /* Geräte mit Finger als Zeiger bekommen die Bedienflächen sofort, nicht erst nach der ersten Berührung */
+  if (window.matchMedia && matchMedia("(pointer: coarse)").matches) document.documentElement.classList.add("beruehrung");
+})();
+</script>
 <style>
-  /* Fraunces (SIL Open Font License 1.1, schrift/OFL.txt), liegt bei, kein Abruf bei fremden Diensten. */
+  /* Fraunces (SIL Open Font License 1.1, schrift/OFL.txt), liegt bei, kein Abruf bei fremden Diensten.
+     Der Ersatz ist Georgia, auf Fraunces getrimmt (Werte aus Kugelblitz und der Startseite), solange sie lädt. */
   @font-face {
     font-family: "Fraunces Streckenblitz";
     font-style: normal;
@@ -17,90 +69,125 @@
     font-weight: 100 900;
     src: url("schrift/fraunces-latin-wght-normal.woff2") format("woff2");
   }
+  @font-face {
+    font-family: "Fraunces Ersatz";
+    font-style: normal;
+    font-weight: 500 900;
+    src: local("Georgia Bold"), local("Georgia-Bold");
+    size-adjust: 93%;
+    ascent-override: 105.2%;
+    descent-override: 27.4%;
+    line-gap-override: 0%;
+  }
+  @font-face {
+    font-family: "Fraunces Ersatz";
+    font-style: normal;
+    font-weight: 100 499;
+    src: local("Georgia");
+    size-adjust: 106.3%;
+    ascent-override: 92%;
+    descent-override: 24%;
+    line-gap-override: 0%;
+  }
 
-  /* Farben der Werkstatt, dunkle Darstellung, gedämpft (Lichtempfindlichkeit) */
+  /* Farben von Streckenblitz: Asphaltblau, gedämpftes Signalorange, Weißgold der Werkstatt. Alle Schriftfarben halten
+     auf der Platte (#10151F) mindestens 4,5:1: Text 13,4:1, leise 7,8:1, still 5,7:1, Signal 6,5:1. */
   :root {
     color-scheme: dark;
-    --rand: #08080F;          /* Fläche um das Spielbild */
-    --platte: rgba(13, 12, 28, 0.74);
-    --text: #CFCFE6;
-    --text-leise: #9495BA;
-    --weissgold: #F1E4BC;
-    --petrol: #3F8F93;
-    --font-schild: "Fraunces Streckenblitz", Georgia, serif;
-    --font-text: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --sb-grund: #0A0D15;          /* Fläche um das Spielbild */
+    --sb-platte: rgba(16, 21, 31, 0.94);
+    --sb-platte-hud: rgba(13, 17, 27, 0.76);
+    --sb-feld: #0C1019;           /* Grund der Knöpfe */
+    --sb-kante: #2C354A;
+    --sb-text: #D9DCE6;
+    --sb-text-leise: #A3AABD;
+    --sb-text-still: #8790A8;
+    --sb-signal: #D58A4E;         /* gedämpftes Signalorange */
+    --sb-weissgold: #F1E4BC;
+    --sb-petrol: #3F8F93;         /* Farbe deines Wagens */
+    --sb-auf-farbe: #10151F;      /* Schrift auf einer Fläche in Signalfarbe */
+    --sb-schatten: -12px 14px 30px rgba(0, 0, 0, 0.5);
+    --sb-schrift-schild: "Fraunces Streckenblitz", "Fraunces Ersatz", Georgia, serif;
+    --sb-schrift-text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --sb-aussen: max(14px, env(safe-area-inset-left));
     /* Weißgold-Schrauben der Startseite (aus Kugelblitz), Schlitze 32, -58, 78, -14 Grad */
-    --schraube-1: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cdefs%3E%3CradialGradient id='s' cx='42%' cy='58%' r='50%'%3E%3Cstop offset='55%' stop-opacity='.6'/%3E%3Cstop offset='100%' stop-opacity='0'/%3E%3C/radialGradient%3E%3CradialGradient id='k' cx='66%' cy='30%' r='78%'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='.2' stop-color='%23FFFCEE'/%3E%3Cstop offset='.5' stop-color='%23F1E4BC'/%3E%3Cstop offset='.8' stop-color='%23C4A964'/%3E%3Cstop offset='1' stop-color='%237A6226'/%3E%3C/radialGradient%3E%3ClinearGradient id='m' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238A6A22' stop-opacity='.55'/%3E%3Cstop offset='.5' stop-color='%23FFF3C4' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23FFFBEA' stop-opacity='.7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='5.1' cy='6.9' r='5' fill='url(%23s)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='url(%23k)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='none' stroke='%23553E0C' stroke-opacity='.6' stroke-width='.45'/%3E%3Ccircle cx='6' cy='6' r='2.9' fill='none' stroke='url(%23m)' stroke-width='.5'/%3E%3Cg transform='rotate(32 6 6)'%3E%3Cpath d='M2.5 6h7' stroke='%233A2A07' stroke-width='1.2' stroke-linecap='round'/%3E%3Cpath d='M2.7 6.62h6.6' stroke='%23FFF7DA' stroke-opacity='.75' stroke-width='.3' stroke-linecap='round'/%3E%3C/g%3E%3Cellipse cx='7.7' cy='3.9' rx='1.05' ry='.6' transform='rotate(-35 7.7 3.9)' fill='%23FFFFFF' fill-opacity='.9'/%3E%3C/svg%3E");
-    --schraube-2: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cdefs%3E%3CradialGradient id='s' cx='42%' cy='58%' r='50%'%3E%3Cstop offset='55%' stop-opacity='.6'/%3E%3Cstop offset='100%' stop-opacity='0'/%3E%3C/radialGradient%3E%3CradialGradient id='k' cx='66%' cy='30%' r='78%'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='.2' stop-color='%23FFFCEE'/%3E%3Cstop offset='.5' stop-color='%23F1E4BC'/%3E%3Cstop offset='.8' stop-color='%23C4A964'/%3E%3Cstop offset='1' stop-color='%237A6226'/%3E%3C/radialGradient%3E%3ClinearGradient id='m' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238A6A22' stop-opacity='.55'/%3E%3Cstop offset='.5' stop-color='%23FFF3C4' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23FFFBEA' stop-opacity='.7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='5.1' cy='6.9' r='5' fill='url(%23s)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='url(%23k)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='none' stroke='%23553E0C' stroke-opacity='.6' stroke-width='.45'/%3E%3Ccircle cx='6' cy='6' r='2.9' fill='none' stroke='url(%23m)' stroke-width='.5'/%3E%3Cg transform='rotate(-58 6 6)'%3E%3Cpath d='M2.5 6h7' stroke='%233A2A07' stroke-width='1.2' stroke-linecap='round'/%3E%3Cpath d='M2.7 6.62h6.6' stroke='%23FFF7DA' stroke-opacity='.75' stroke-width='.3' stroke-linecap='round'/%3E%3C/g%3E%3Cellipse cx='7.7' cy='3.9' rx='1.05' ry='.6' transform='rotate(-35 7.7 3.9)' fill='%23FFFFFF' fill-opacity='.9'/%3E%3C/svg%3E");
-    --schraube-3: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cdefs%3E%3CradialGradient id='s' cx='42%' cy='58%' r='50%'%3E%3Cstop offset='55%' stop-opacity='.6'/%3E%3Cstop offset='100%' stop-opacity='0'/%3E%3C/radialGradient%3E%3CradialGradient id='k' cx='66%' cy='30%' r='78%'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='.2' stop-color='%23FFFCEE'/%3E%3Cstop offset='.5' stop-color='%23F1E4BC'/%3E%3Cstop offset='.8' stop-color='%23C4A964'/%3E%3Cstop offset='1' stop-color='%237A6226'/%3E%3C/radialGradient%3E%3ClinearGradient id='m' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238A6A22' stop-opacity='.55'/%3E%3Cstop offset='.5' stop-color='%23FFF3C4' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23FFFBEA' stop-opacity='.7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='5.1' cy='6.9' r='5' fill='url(%23s)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='url(%23k)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='none' stroke='%23553E0C' stroke-opacity='.6' stroke-width='.45'/%3E%3Ccircle cx='6' cy='6' r='2.9' fill='none' stroke='url(%23m)' stroke-width='.5'/%3E%3Cg transform='rotate(78 6 6)'%3E%3Cpath d='M2.5 6h7' stroke='%233A2A07' stroke-width='1.2' stroke-linecap='round'/%3E%3Cpath d='M2.7 6.62h6.6' stroke='%23FFF7DA' stroke-opacity='.75' stroke-width='.3' stroke-linecap='round'/%3E%3C/g%3E%3Cellipse cx='7.7' cy='3.9' rx='1.05' ry='.6' transform='rotate(-35 7.7 3.9)' fill='%23FFFFFF' fill-opacity='.9'/%3E%3C/svg%3E");
-    --schraube-4: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cdefs%3E%3CradialGradient id='s' cx='42%' cy='58%' r='50%'%3E%3Cstop offset='55%' stop-opacity='.6'/%3E%3Cstop offset='100%' stop-opacity='0'/%3E%3C/radialGradient%3E%3CradialGradient id='k' cx='66%' cy='30%' r='78%'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='.2' stop-color='%23FFFCEE'/%3E%3Cstop offset='.5' stop-color='%23F1E4BC'/%3E%3Cstop offset='.8' stop-color='%23C4A964'/%3E%3Cstop offset='1' stop-color='%237A6226'/%3E%3C/radialGradient%3E%3ClinearGradient id='m' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238A6A22' stop-opacity='.55'/%3E%3Cstop offset='.5' stop-color='%23FFF3C4' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23FFFBEA' stop-opacity='.7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='5.1' cy='6.9' r='5' fill='url(%23s)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='url(%23k)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='none' stroke='%23553E0C' stroke-opacity='.6' stroke-width='.45'/%3E%3Ccircle cx='6' cy='6' r='2.9' fill='none' stroke='url(%23m)' stroke-width='.5'/%3E%3Cg transform='rotate(-14 6 6)'%3E%3Cpath d='M2.5 6h7' stroke='%233A2A07' stroke-width='1.2' stroke-linecap='round'/%3E%3Cpath d='M2.7 6.62h6.6' stroke='%23FFF7DA' stroke-opacity='.75' stroke-width='.3' stroke-linecap='round'/%3E%3C/g%3E%3Cellipse cx='7.7' cy='3.9' rx='1.05' ry='.6' transform='rotate(-35 7.7 3.9)' fill='%23FFFFFF' fill-opacity='.9'/%3E%3C/svg%3E");
+    --sb-schraube-1: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cdefs%3E%3CradialGradient id='s' cx='42%' cy='58%' r='50%'%3E%3Cstop offset='55%' stop-opacity='.6'/%3E%3Cstop offset='100%' stop-opacity='0'/%3E%3C/radialGradient%3E%3CradialGradient id='k' cx='66%' cy='30%' r='78%'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='.2' stop-color='%23FFFCEE'/%3E%3Cstop offset='.5' stop-color='%23F1E4BC'/%3E%3Cstop offset='.8' stop-color='%23C4A964'/%3E%3Cstop offset='1' stop-color='%237A6226'/%3E%3C/radialGradient%3E%3ClinearGradient id='m' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238A6A22' stop-opacity='.55'/%3E%3Cstop offset='.5' stop-color='%23FFF3C4' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23FFFBEA' stop-opacity='.7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='5.1' cy='6.9' r='5' fill='url(%23s)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='url(%23k)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='none' stroke='%23553E0C' stroke-opacity='.6' stroke-width='.45'/%3E%3Ccircle cx='6' cy='6' r='2.9' fill='none' stroke='url(%23m)' stroke-width='.5'/%3E%3Cg transform='rotate(32 6 6)'%3E%3Cpath d='M2.5 6h7' stroke='%233A2A07' stroke-width='1.2' stroke-linecap='round'/%3E%3Cpath d='M2.7 6.62h6.6' stroke='%23FFF7DA' stroke-opacity='.75' stroke-width='.3' stroke-linecap='round'/%3E%3C/g%3E%3Cellipse cx='7.7' cy='3.9' rx='1.05' ry='.6' transform='rotate(-35 7.7 3.9)' fill='%23FFFFFF' fill-opacity='.9'/%3E%3C/svg%3E");
+    --sb-schraube-2: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cdefs%3E%3CradialGradient id='s' cx='42%' cy='58%' r='50%'%3E%3Cstop offset='55%' stop-opacity='.6'/%3E%3Cstop offset='100%' stop-opacity='0'/%3E%3C/radialGradient%3E%3CradialGradient id='k' cx='66%' cy='30%' r='78%'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='.2' stop-color='%23FFFCEE'/%3E%3Cstop offset='.5' stop-color='%23F1E4BC'/%3E%3Cstop offset='.8' stop-color='%23C4A964'/%3E%3Cstop offset='1' stop-color='%237A6226'/%3E%3C/radialGradient%3E%3ClinearGradient id='m' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238A6A22' stop-opacity='.55'/%3E%3Cstop offset='.5' stop-color='%23FFF3C4' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23FFFBEA' stop-opacity='.7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='5.1' cy='6.9' r='5' fill='url(%23s)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='url(%23k)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='none' stroke='%23553E0C' stroke-opacity='.6' stroke-width='.45'/%3E%3Ccircle cx='6' cy='6' r='2.9' fill='none' stroke='url(%23m)' stroke-width='.5'/%3E%3Cg transform='rotate(-58 6 6)'%3E%3Cpath d='M2.5 6h7' stroke='%233A2A07' stroke-width='1.2' stroke-linecap='round'/%3E%3Cpath d='M2.7 6.62h6.6' stroke='%23FFF7DA' stroke-opacity='.75' stroke-width='.3' stroke-linecap='round'/%3E%3C/g%3E%3Cellipse cx='7.7' cy='3.9' rx='1.05' ry='.6' transform='rotate(-35 7.7 3.9)' fill='%23FFFFFF' fill-opacity='.9'/%3E%3C/svg%3E");
+    --sb-schraube-3: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cdefs%3E%3CradialGradient id='s' cx='42%' cy='58%' r='50%'%3E%3Cstop offset='55%' stop-opacity='.6'/%3E%3Cstop offset='100%' stop-opacity='0'/%3E%3C/radialGradient%3E%3CradialGradient id='k' cx='66%' cy='30%' r='78%'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='.2' stop-color='%23FFFCEE'/%3E%3Cstop offset='.5' stop-color='%23F1E4BC'/%3E%3Cstop offset='.8' stop-color='%23C4A964'/%3E%3Cstop offset='1' stop-color='%237A6226'/%3E%3C/radialGradient%3E%3ClinearGradient id='m' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238A6A22' stop-opacity='.55'/%3E%3Cstop offset='.5' stop-color='%23FFF3C4' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23FFFBEA' stop-opacity='.7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='5.1' cy='6.9' r='5' fill='url(%23s)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='url(%23k)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='none' stroke='%23553E0C' stroke-opacity='.6' stroke-width='.45'/%3E%3Ccircle cx='6' cy='6' r='2.9' fill='none' stroke='url(%23m)' stroke-width='.5'/%3E%3Cg transform='rotate(78 6 6)'%3E%3Cpath d='M2.5 6h7' stroke='%233A2A07' stroke-width='1.2' stroke-linecap='round'/%3E%3Cpath d='M2.7 6.62h6.6' stroke='%23FFF7DA' stroke-opacity='.75' stroke-width='.3' stroke-linecap='round'/%3E%3C/g%3E%3Cellipse cx='7.7' cy='3.9' rx='1.05' ry='.6' transform='rotate(-35 7.7 3.9)' fill='%23FFFFFF' fill-opacity='.9'/%3E%3C/svg%3E");
+    --sb-schraube-4: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cdefs%3E%3CradialGradient id='s' cx='42%' cy='58%' r='50%'%3E%3Cstop offset='55%' stop-opacity='.6'/%3E%3Cstop offset='100%' stop-opacity='0'/%3E%3C/radialGradient%3E%3CradialGradient id='k' cx='66%' cy='30%' r='78%'%3E%3Cstop offset='0' stop-color='%23FFFFFF'/%3E%3Cstop offset='.2' stop-color='%23FFFCEE'/%3E%3Cstop offset='.5' stop-color='%23F1E4BC'/%3E%3Cstop offset='.8' stop-color='%23C4A964'/%3E%3Cstop offset='1' stop-color='%237A6226'/%3E%3C/radialGradient%3E%3ClinearGradient id='m' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238A6A22' stop-opacity='.55'/%3E%3Cstop offset='.5' stop-color='%23FFF3C4' stop-opacity='0'/%3E%3Cstop offset='1' stop-color='%23FFFBEA' stop-opacity='.7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='5.1' cy='6.9' r='5' fill='url(%23s)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='url(%23k)'/%3E%3Ccircle cx='6' cy='6' r='4.3' fill='none' stroke='%23553E0C' stroke-opacity='.6' stroke-width='.45'/%3E%3Ccircle cx='6' cy='6' r='2.9' fill='none' stroke='url(%23m)' stroke-width='.5'/%3E%3Cg transform='rotate(-14 6 6)'%3E%3Cpath d='M2.5 6h7' stroke='%233A2A07' stroke-width='1.2' stroke-linecap='round'/%3E%3Cpath d='M2.7 6.62h6.6' stroke='%23FFF7DA' stroke-opacity='.75' stroke-width='.3' stroke-linecap='round'/%3E%3C/g%3E%3Cellipse cx='7.7' cy='3.9' rx='1.05' ry='.6' transform='rotate(-35 7.7 3.9)' fill='%23FFFFFF' fill-opacity='.9'/%3E%3C/svg%3E");
   }
 
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--rand); color: var(--text); overflow: hidden; }
-  body { font-family: var(--font-text); }
+  [hidden] { display: none !important; }
+  html { background: radial-gradient(ellipse 80% 70% at 50% 42%, #0E1320, var(--sb-grund) 72%); background-color: var(--sb-grund); }
+  html, body { margin: 0; height: 100%; color: var(--sb-text); overflow: hidden; }
+  body { font: 15px/1.45 var(--sb-schrift-text); -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid var(--sb-signal); outline-offset: 2px; }
+  :root[lang="ko"] .ebene { word-break: keep-all; }
+  :root[lang="ja"] .ebene, :root[lang="zh"] .ebene { line-break: strict; }
 
   /* Bühne: genau so groß wie das vergrößerte Spielbild, mittig, Rest dunkel.
-     --gp ist die Größe eines Spielpixels in CSS-Pixeln (setzt das Skript). */
+     --gp ist die Größe eines Spielpixels in CSS-Pixeln (setzt das Skript), --hp die Einheit der Anzeigen:
+     wie ein Spielpixel, aber nie so klein, dass die Schrift auf dem Handy unlesbar würde. */
   #buehne {
     --gp: 3px;
+    --hp: max(var(--gp), 2.7px);
     position: absolute;
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: -12px 14px 30px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--sb-schatten), 0 0 0 1px rgba(44, 53, 74, 0.55);
   }
   #leinwand { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 
-  /* Anzeigen über dem Spielbild: scharf, kleine Beschlag-Platten, Zahlen in ruhigem Takt */
-  #hud { position: absolute; inset: 0; pointer-events: none; font-family: var(--font-schild); transition: opacity 0.3s ease; }
+  /* ---------- Anzeigen über dem Spielbild: kleine Beschlag-Platten, Zahlen in ruhigem Takt ---------- */
+  #hud { position: absolute; inset: 0; pointer-events: none; font-family: var(--sb-schrift-schild); transition: opacity 0.3s ease; }
   #hud.leise { opacity: 0; }
-  .platte, .tafel {
+  .platte {
     position: absolute;
-    padding: calc(var(--gp) * 2.6) calc(var(--gp) * 4.4) calc(var(--gp) * 2.4);
-    background: var(--platte);
-    border: 1px solid color-mix(in srgb, var(--weissgold) 26%, transparent);
-    border-radius: calc(var(--gp) * 1.4);
-    box-shadow: calc(var(--gp) * -1.2) calc(var(--gp) * 1.4) calc(var(--gp) * 3) rgba(0, 0, 0, 0.45);
+    padding: calc(var(--hp) * 2.6) calc(var(--hp) * 4.4) calc(var(--hp) * 2.4);
+    background: var(--sb-platte-hud);
+    border: 1px solid color-mix(in srgb, var(--sb-weissgold) 24%, transparent);
+    border-radius: calc(var(--hp) * 1.4);
+    box-shadow: calc(var(--hp) * -1.2) calc(var(--hp) * 1.4) calc(var(--hp) * 3) rgba(0, 0, 0, 0.45);
   }
-  .platte::before, .tafel::before, .knopf::before {
+  .platte::before, .knopf::before, .beruehr::before {
     content: "";
     position: absolute;
-    inset: calc(var(--gp) * 0.8);
-    border: 1px solid color-mix(in srgb, var(--weissgold) 13%, transparent);
+    inset: calc(var(--hp, 3px) * 0.8);
+    border: 1px solid color-mix(in srgb, var(--sb-weissgold) 13%, transparent);
     background:
-      var(--schraube-1) left 1px top 1px / calc(var(--gp) * 1.6) calc(var(--gp) * 1.6) no-repeat,
-      var(--schraube-2) right 1px top 1px / calc(var(--gp) * 1.6) calc(var(--gp) * 1.6) no-repeat,
-      var(--schraube-3) left 1px bottom 1px / calc(var(--gp) * 1.6) calc(var(--gp) * 1.6) no-repeat,
-      var(--schraube-4) right 1px bottom 1px / calc(var(--gp) * 1.6) calc(var(--gp) * 1.6) no-repeat;
+      var(--sb-schraube-1) left 1px top 1px / calc(var(--hp, 3px) * 1.6) calc(var(--hp, 3px) * 1.6) no-repeat,
+      var(--sb-schraube-2) right 1px top 1px / calc(var(--hp, 3px) * 1.6) calc(var(--hp, 3px) * 1.6) no-repeat,
+      var(--sb-schraube-3) left 1px bottom 1px / calc(var(--hp, 3px) * 1.6) calc(var(--hp, 3px) * 1.6) no-repeat,
+      var(--sb-schraube-4) right 1px bottom 1px / calc(var(--hp, 3px) * 1.6) calc(var(--hp, 3px) * 1.6) no-repeat;
     opacity: 0.8;
     pointer-events: none;
   }
-  .platte[hidden], .tafel[hidden] { display: none; }
-  .etikett { display: block; font: 500 calc(var(--gp) * 3.6)/1.1 var(--font-schild); color: var(--text-leise); letter-spacing: 0.02em; }
-  .wert { display: block; font: 600 calc(var(--gp) * 7)/1.05 var(--font-schild); color: var(--text); font-variant-numeric: tabular-nums lining-nums; }
-  #platte-stand { left: calc(var(--gp) * 6); top: calc(var(--gp) * 6); display: flex; gap: calc(var(--gp) * 5); }
-  #platte-stand > div[hidden] { display: none; }
-  #platte-zeit { right: calc(var(--gp) * 6); top: calc(var(--gp) * 6); text-align: right; min-width: calc(var(--gp) * 62); }
-  #platte-zeit .zeile { display: flex; justify-content: space-between; align-items: baseline; gap: calc(var(--gp) * 4); margin-top: calc(var(--gp) * 1.2); }
-  #platte-zeit .zeile[hidden] { display: none; }
-  #platte-zeit .zeile .etikett { font-size: calc(var(--gp) * 3.4); }
-  #platte-zeit .zeile .wert { font-size: calc(var(--gp) * 4.4); color: var(--text-leise); }
-  #platte-zeit .zeile .wert.bestzeit { color: color-mix(in srgb, var(--weissgold) 72%, var(--text-leise)); }
-  #platte-tempo { left: calc(var(--gp) * 6); bottom: calc(var(--gp) * 6); min-width: calc(var(--gp) * 52); }
+  .etikett { display: block; font: 500 calc(var(--hp) * 3.6)/1.1 var(--sb-schrift-schild); color: var(--sb-text-leise); letter-spacing: 0.02em; white-space: nowrap; }
+  .wert { display: block; font: 600 calc(var(--hp) * 7)/1.05 var(--sb-schrift-schild); color: var(--sb-text); font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
+  #platte-stand { left: calc(var(--hp) * 6); top: calc(var(--hp) * 6); display: flex; gap: calc(var(--hp) * 5); }
+  #platte-zeit { right: calc(var(--hp) * 6); top: calc(var(--hp) * 6); text-align: right; min-width: calc(var(--hp) * 62); }
+  #platte-zeit .zeile { display: flex; justify-content: space-between; align-items: baseline; gap: calc(var(--hp) * 4); margin-top: calc(var(--hp) * 1.2); }
+  #platte-zeit .zeile .etikett { font-size: calc(var(--hp) * 3.4); }
+  #platte-zeit .zeile .wert { font-size: calc(var(--hp) * 4.4); color: var(--sb-text-leise); }
+  #platte-zeit .zeile .wert.bestzeit { color: color-mix(in srgb, var(--sb-weissgold) 72%, var(--sb-text-leise)); }
+  #platte-tempo { left: calc(var(--hp) * 6); bottom: calc(var(--hp) * 6); min-width: calc(var(--hp) * 52); }
   #platte-tempo .wert { display: inline; }
-  #platte-tempo .einheit { font: 500 calc(var(--gp) * 3.6)/1 var(--font-schild); color: var(--text-leise); margin-left: calc(var(--gp) * 1.2); }
-  .balken { position: relative; height: calc(var(--gp) * 2.2); margin-top: calc(var(--gp) * 2); background: rgba(255, 255, 255, 0.05); border: 1px solid color-mix(in srgb, var(--weissgold) 16%, transparent); overflow: hidden; }
-  .balken > i { position: absolute; inset: 0; transform-origin: 0 50%; transform: scaleX(0); background: linear-gradient(90deg, #24585d, var(--petrol) 70%, #9a8c62); }
-  #platte-bot { right: calc(var(--gp) * 6); bottom: calc(var(--gp) * 6); }
+  #platte-tempo .einheit { font: 500 calc(var(--hp) * 3.6)/1 var(--sb-schrift-schild); color: var(--sb-text-leise); margin-left: calc(var(--hp) * 1.2); }
+  .balken { position: relative; height: calc(var(--hp) * 2.2); margin-top: calc(var(--hp) * 2); background: rgba(255, 255, 255, 0.05); border: 1px solid color-mix(in srgb, var(--sb-weissgold) 16%, transparent); overflow: hidden; }
+  .balken > i { position: absolute; inset: 0; transform-origin: 0 50%; transform: scaleX(0); background: linear-gradient(90deg, #24585d, var(--sb-petrol) 70%, #9a8c62); }
+  #platte-bot { right: calc(var(--hp) * 6); bottom: calc(var(--hp) * 6); }
+  /* Mit Finger: unten liegen die Bedienflächen, das Tempo rückt unter Platz und Runde */
+  :root.beruehrung #platte-tempo { top: calc(var(--hp) * 24.5); bottom: auto; }
+  :root.beruehrung #platte-bot { bottom: auto; top: calc(var(--hp) * 34); }
 
   /* Startampel: fünf Lichter, gehen nacheinander an und zusammen aus. Gedämpftes Rot, kein Leuchten, kein Blinken. */
-  #ampel { left: 50%; top: calc(var(--gp) * 6); transform: translateX(-50%); display: flex; gap: calc(var(--gp) * 2.4); padding: calc(var(--gp) * 3) calc(var(--gp) * 4.6); transition: opacity 0.4s ease; }
-  #ampel[hidden] { display: none; }
+  #ampel { left: 50%; top: calc(var(--hp) * 6); transform: translateX(-50%); display: flex; gap: calc(var(--hp) * 2.4); padding: calc(var(--hp) * 3) calc(var(--hp) * 4.6); transition: opacity 0.4s ease; }
   #ampel.weg { opacity: 0; }
   #ampel i {
-    width: calc(var(--gp) * 7);
-    height: calc(var(--gp) * 7);
+    width: calc(var(--hp) * 7);
+    height: calc(var(--hp) * 7);
     border-radius: 50%;
     background: radial-gradient(circle at 38% 34%, #2a2229, #141016 70%);
     box-shadow: inset 0 0 0 1px rgba(241, 228, 188, 0.12);
@@ -108,153 +195,533 @@
   }
   #ampel i.an { background: radial-gradient(circle at 38% 34%, #a8473c, #7a2c27 62%, #4e1d1c); }
 
-  /* Tafeln für Menü, Pause und Ergebnis: mittig über dem abgedunkelten Spielbild */
-  #schleier { position: absolute; inset: 0; background: rgba(6, 6, 14, 0.58); }
-  #schleier[hidden] { display: none; }
-  .tafel {
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    padding: calc(var(--gp) * 7) calc(var(--gp) * 10) calc(var(--gp) * 7);
-    text-align: center;
-    font-family: var(--font-schild);
-    background: rgba(12, 11, 26, 0.9);
+  #schleier { position: absolute; inset: 0; background: rgba(6, 8, 14, 0.6); }
+
+  /* ---------- Ebenen über dem ganzen Fenster: Menü, Einstellungen, Pause, Ergebnis, Hinweis „quer“ ----------
+     Sie messen in CSS-Pixeln statt in Spielpixeln, damit Schrift und Knöpfe auch auf dem Handy groß genug bleiben.
+     Der Inhalt sitzt mit margin: auto in der Mitte, so bleibt er auch dann ganz erreichbar, wenn er höher ist als das
+     Fenster (dann rollt die Ebene). */
+  .ebene {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    overflow: auto;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   }
-  .tafel h1, .tafel h2 { margin: 0; font-weight: 600; color: var(--text); letter-spacing: 0.01em; }
-  .tafel h1 { font-size: calc(var(--gp) * 13); line-height: 1; }
-  .tafel h2 { font-size: calc(var(--gp) * 8.5); line-height: 1.1; }
-  .unterzeile { margin: calc(var(--gp) * 2) 0 calc(var(--gp) * 6); font: 400 calc(var(--gp) * 4.2)/1.3 var(--font-schild); color: var(--text-leise); font-style: italic; }
-  .wahl { display: flex; justify-content: center; gap: calc(var(--gp) * 3); margin: calc(var(--gp) * 3) 0; }
-  .wahl-titel { display: block; margin-top: calc(var(--gp) * 4); font: 500 calc(var(--gp) * 3.4)/1 var(--font-schild); color: var(--text-leise); letter-spacing: 0.06em; }
+  .innen { margin: auto; max-width: 100%; }
+
+  /* Beschlag der Werkstatt: gerundete Platte, eckiger Rahmen darin, vier Schrauben in verschiedenen Winkeln, Kappe in
+     Signalorange, Schatten nach links unten (Licht von rechts oben) */
+  .beschlag {
+    --kappe: var(--sb-signal);
+    position: relative;
+    border: 1px solid var(--sb-kante);
+    border-radius: 8px;
+    background:
+      radial-gradient(130% 70% at 50% 0%, color-mix(in srgb, var(--kappe) 9%, transparent), transparent 70%),
+      var(--sb-platte);
+    box-shadow: var(--sb-schatten), 0 -10px 30px -18px color-mix(in srgb, var(--kappe) 42%, transparent);
+    isolation: isolate;
+  }
+  .beschlag::after {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border: 1px solid color-mix(in srgb, var(--kappe) 30%, transparent);
+    background:
+      var(--sb-schraube-1) left 3px top 3px / 9px 9px no-repeat,
+      var(--sb-schraube-2) right 3px top 3px / 9px 9px no-repeat,
+      var(--sb-schraube-3) left 3px bottom 3px / 9px 9px no-repeat,
+      var(--sb-schraube-4) right 3px bottom 3px / 9px 9px no-repeat;
+    pointer-events: none;
+  }
+  .beschlag::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(var(--kappe), var(--kappe)) top / 100% 4px no-repeat;
+    pointer-events: none;
+  }
+  @supports (mask-composite: exclude) {
+    .beschlag::before {
+      border: 1px solid transparent;
+      border-top-width: 4px;
+      background: linear-gradient(var(--kappe), var(--kappe)) border-box top / 100% 40px no-repeat;
+      mask:
+        linear-gradient(#000 12px, transparent 40px) border-box,
+        linear-gradient(#000 0 0) padding-box,
+        linear-gradient(#000 0 0) border-box;
+      mask-composite: intersect, exclude;
+    }
+  }
+  .tafel { padding: 28px 36px 26px; text-align: center; font-family: var(--sb-schrift-schild); }
+  .tafel h2 { margin: 0; font: 600 30px/1.15 var(--sb-schrift-schild); color: var(--sb-text); letter-spacing: 0.005em; }
+
+  /* Titel: Schriftzug in Weißgold mit hartem Pixelschatten nach links unten (alt) und weichem Schatten dazu (neu),
+     darunter ein Tempostreifen aus Blöcken, die nach rechts kürzer werden */
+  .kopf { text-align: center; }
+  .titel {
+    margin: 0;
+    font: 650 84px/0.98 var(--sb-schrift-schild);
+    letter-spacing: -0.015em;
+    color: #E3D3A6;
+    background: linear-gradient(180deg, #EDE1BD 10%, #DCC593 52%, #A98B57 96%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(-3px 4px 0 rgba(3, 4, 9, 0.75)) drop-shadow(-10px 14px 16px rgba(0, 0, 0, 0.45));
+  }
+  .titel-streifen {
+    display: block;
+    width: 56%;
+    height: 7px;
+    margin: 12px auto 0;
+    transform: skewX(-30deg);
+    background: linear-gradient(90deg, var(--sb-signal) 0 58%, transparent 58% 62%, var(--sb-signal) 62% 75%, transparent 75% 79%,
+      var(--sb-signal) 79% 87%, transparent 87% 91%, var(--sb-signal) 91% 95%, transparent 95%);
+    opacity: 0.78;
+  }
+  .kicker { margin: 12px 0 0; font: italic 400 19px/1.3 var(--sb-schrift-schild); color: var(--sb-text-leise); letter-spacing: 0.01em; }
+
+  #menue .innen { display: flex; flex-direction: column; align-items: center; gap: 26px; }
+  .menue-tafel { width: min(880px, 100%); }
+  .wahl-titel { display: block; margin: 0 0 10px; font: 600 12px/1.2 var(--sb-schrift-text); letter-spacing: 0.14em; text-transform: uppercase; color: var(--sb-text-still); }
+  .wahl { display: flex; justify-content: center; gap: 10px; }
+  .strecken { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .unterzeile { margin: 12px 0 0; min-height: 1.3em; font: italic 400 16px/1.3 var(--sb-schrift-schild); color: var(--sb-text-leise); }
+  .zeile2 { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-top: 24px; }
+  .knoepfe { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 28px; }
+  .tasten { margin: 18px 0 0; font: 400 12.5px/1.4 var(--sb-schrift-text); color: var(--sb-text-still); }
+
   .knopf {
     position: relative;
-    min-width: calc(var(--gp) * 38);
-    padding: calc(var(--gp) * 2.8) calc(var(--gp) * 6);
-    border: 1px solid color-mix(in srgb, var(--weissgold) 22%, transparent);
-    border-radius: calc(var(--gp) * 1.2);
-    background: rgba(8, 8, 18, 0.7);
-    color: var(--text-leise);
-    font: 560 calc(var(--gp) * 5.2)/1 var(--font-schild);
+    --hp: 3px;
+    min-width: 128px;
+    padding: 11px 20px;
+    border: 1px solid color-mix(in srgb, var(--sb-weissgold) 20%, transparent);
+    border-radius: 6px;
+    background: var(--sb-feld);
+    color: var(--sb-text-leise);
+    font: 560 17px/1.15 var(--sb-schrift-schild);
     cursor: pointer;
-    box-shadow: calc(var(--gp) * -0.8) calc(var(--gp) * 1) calc(var(--gp) * 2) rgba(0, 0, 0, 0.45);
-    transition: border-color 0.15s ease, color 0.15s ease;
+    box-shadow: -3px 4px 8px -4px rgba(0, 0, 0, 0.55);
+    transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
   }
   .knopf::before { inset: 2px; opacity: 0.7; }
-  .knopf[aria-pressed="true"] { color: var(--weissgold); border-color: color-mix(in srgb, var(--weissgold) 55%, transparent); background: rgba(40, 113, 120, 0.22); }
-  .knopf:hover, .knopf:focus-visible { color: var(--text); border-color: color-mix(in srgb, var(--weissgold) 60%, transparent); outline: none; }
-  .knopf.haupt { margin-top: calc(var(--gp) * 7); min-width: calc(var(--gp) * 56); color: var(--weissgold); border-color: color-mix(in srgb, var(--weissgold) 45%, transparent); }
-  .knoepfe { display: flex; justify-content: center; gap: calc(var(--gp) * 3); margin-top: calc(var(--gp) * 6); }
-  .knoepfe .knopf.haupt { margin-top: 0; }
-  #pause .knoepfe { flex-direction: column; align-items: center; }
-  /* Streckenwahl: drei Karten mit einem kleinen Himmelsstreifen der Strecke */
-  .strecken { gap: calc(var(--gp) * 2.6); }
-  .knopf.karte { min-width: calc(var(--gp) * 44); padding: calc(var(--gp) * 2.6) calc(var(--gp) * 3.4) calc(var(--gp) * 3.2); text-align: left; }
-  .karte .streifen { display: block; height: calc(var(--gp) * 9); margin-bottom: calc(var(--gp) * 2.2); border-radius: calc(var(--gp) * 0.6); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35); }
-  .karte b { display: block; font: 600 calc(var(--gp) * 4.6)/1.1 var(--font-schild); }
-  .karte small { display: block; margin-top: calc(var(--gp) * 1.2); font: 400 calc(var(--gp) * 3.2)/1.2 var(--font-schild); color: #7c7da2; font-variant-numeric: tabular-nums lining-nums; }
-  .karte[aria-pressed="true"] small { color: color-mix(in srgb, var(--weissgold) 60%, var(--text-leise)); }
-  #ton { min-width: calc(var(--gp) * 30); }
-  .rekord { margin: calc(var(--gp) * 5) 0 0; font: 400 calc(var(--gp) * 4)/1.2 var(--font-schild); color: var(--text-leise); }
-  .rekord b { font-weight: 600; color: color-mix(in srgb, var(--weissgold) 70%, var(--text-leise)); font-variant-numeric: tabular-nums lining-nums; }
-  .tasten { margin: calc(var(--gp) * 5) 0 0; font: 400 calc(var(--gp) * 3.4)/1.3 var(--font-text); color: #6E6F92; }
+  .knopf[aria-pressed="true"] { color: var(--sb-weissgold); border-color: color-mix(in srgb, var(--sb-signal) 72%, transparent); background: color-mix(in srgb, var(--sb-signal) 13%, var(--sb-feld)); }
+  .knopf:hover, .knopf:focus-visible { color: var(--sb-text); border-color: color-mix(in srgb, var(--sb-weissgold) 55%, transparent); outline: none; }
+  .knopf.haupt { min-width: 168px; color: var(--sb-weissgold); border-color: color-mix(in srgb, var(--sb-signal) 80%, transparent); background: color-mix(in srgb, var(--sb-signal) 22%, var(--sb-feld)); }
+  .knopf.haupt:hover, .knopf.haupt:focus-visible { border-color: var(--sb-weissgold); }
+
+  /* Streckenwahl: Karten mit einem Streifen aus Himmel, Dunst und Boden der Strecke */
+  .knopf.karte { display: flex; flex-direction: column; min-width: 0; padding: 10px 10px 12px; text-align: left; }
+  .karte .streifen { display: block; height: 54px; margin-bottom: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35); }
+  .karte b { display: block; font: 600 19px/1.15 var(--sb-schrift-schild); color: var(--sb-text); }
+  .karte small { display: block; margin-top: 4px; font: 400 13px/1.3 var(--sb-schrift-text); color: var(--sb-text-still); font-variant-numeric: tabular-nums lining-nums; }
+  .karte[aria-pressed="true"] b { color: var(--sb-weissgold); }
+  .karte[aria-pressed="true"] small { color: var(--sb-text-leise); }
+
+  /* Knopf „Installieren“ (Muster Pocketsum 1.1) */
+  .knopf-install { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .knopf-install svg { flex: none; }
+  :root.install-platz #installieren[hidden] { display: inline-flex !important; visibility: hidden; }
+
+  /* Einstellungen */
+  .einst-tafel { width: min(640px, 100%); text-align: left; }
+  .einst-tafel h2 { text-align: center; }
+  .einst-tafel h3 { margin: 22px 0 8px; font: 600 12px/1.2 var(--sb-schrift-text); letter-spacing: 0.14em; text-transform: uppercase; color: var(--sb-text-still); }
+  .auswahlen { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; margin-top: 20px; }
+  .auswahl { display: grid; gap: 6px; font: 500 14px/1.3 var(--sb-schrift-text); color: var(--sb-text-leise); }
+  .auswahl select {
+    width: 100%;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--sb-kante);
+    border-radius: 6px;
+    background: var(--sb-feld);
+    color: var(--sb-text);
+    font: 15px/1.3 var(--sb-schrift-text);
+  }
+  .steuerung { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font: 14px/1.45 var(--sb-schrift-text); }
+  .steuerung dt { color: var(--sb-text-leise); }
+  .steuerung dd { margin: 0; color: var(--sb-text); }
+  .uebersetzung { margin: 18px 0 0; font: 12.5px/1.4 var(--sb-schrift-text); color: var(--sb-text-still); }
+  .einst-tafel .knoepfe { margin-top: 22px; }
+
+  /* Pause */
+  .pause-tafel { min-width: 300px; }
+  .pause-tafel .knoepfe { flex-direction: column; align-items: center; margin-top: 22px; }
+  .pause-tafel .knopf { min-width: 210px; }
 
   /* Ergebnistabelle */
-  #ergebnis { min-width: calc(var(--gp) * 196); }
-  #ergebnis.schmal { min-width: calc(var(--gp) * 124); }
-  #ergebnis table { width: 100%; margin-top: calc(var(--gp) * 5); border-collapse: collapse; font: 500 calc(var(--gp) * 4.6)/1.2 var(--font-schild); font-variant-numeric: tabular-nums lining-nums; color: var(--text-leise); }
-  #ergebnis th { padding: 0 calc(var(--gp) * 2) calc(var(--gp) * 1.6); font: 500 calc(var(--gp) * 3.2)/1 var(--font-schild); letter-spacing: 0.05em; text-align: left; color: #7c7da2; border-bottom: 1px solid color-mix(in srgb, var(--weissgold) 16%, transparent); }
-  #ergebnis td { padding: calc(var(--gp) * 1.3) calc(var(--gp) * 2); text-align: left; white-space: nowrap; }
-  #ergebnis .zahl { text-align: right; }
-  #ergebnis tr.du td { color: var(--text); background: rgba(63, 143, 147, 0.13); }
-  #ergebnis tr.du td:first-child { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--petrol) 80%, transparent); }
-  #ergebnis td.beste-runde { color: color-mix(in srgb, var(--weissgold) 72%, var(--text-leise)); }
+  .ergebnis-tafel { min-width: min(760px, 100%); }
+  .ergebnis-tafel.schmal { min-width: min(420px, 100%); }
+  .ergebnis-tafel table { width: 100%; margin-top: 18px; border-collapse: collapse; font: 500 16px/1.25 var(--sb-schrift-schild); font-variant-numeric: tabular-nums lining-nums; color: var(--sb-text-leise); }
+  .ergebnis-tafel th { padding: 0 10px 8px; font: 600 11.5px/1.2 var(--sb-schrift-text); letter-spacing: 0.1em; text-transform: uppercase; text-align: left; color: var(--sb-text-still); border-bottom: 1px solid color-mix(in srgb, var(--sb-weissgold) 16%, transparent); }
+  .ergebnis-tafel td { padding: 5px 10px; text-align: left; white-space: nowrap; }
+  .ergebnis-tafel .zahl { text-align: right; }
+  .ergebnis-tafel tr.du td { color: var(--sb-text); background: color-mix(in srgb, var(--sb-petrol) 14%, transparent); }
+  .ergebnis-tafel tr.du td:first-child { box-shadow: inset 2px 0 0 var(--sb-petrol); }
+  .ergebnis-tafel td.beste-runde { color: color-mix(in srgb, var(--sb-weissgold) 75%, var(--sb-text-leise)); }
   .nummer {
     display: inline-block;
-    min-width: calc(var(--gp) * 8.4);
-    padding: calc(var(--gp) * 0.6) calc(var(--gp) * 1.2);
-    border-radius: calc(var(--gp) * 0.8);
-    font: 600 calc(var(--gp) * 3.8)/1 var(--font-schild);
+    min-width: 30px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font: 600 13px/1.1 var(--sb-schrift-schild);
     text-align: center;
-    color: #cbbd98;
+    color: #E2D6B4;
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
   }
-  #ergebnis-hinweis { margin: calc(var(--gp) * 4) 0 0; font: 500 calc(var(--gp) * 4.4)/1.3 var(--font-schild); color: var(--text-leise); }
-  #ergebnis-hinweis.neu { color: color-mix(in srgb, var(--weissgold) 80%, var(--text-leise)); }
+  #ergebnis-hinweis { margin: 16px 0 0; font: 500 17px/1.35 var(--sb-schrift-schild); color: var(--sb-text-leise); }
+  #ergebnis-hinweis.neu { color: color-mix(in srgb, var(--sb-weissgold) 82%, var(--sb-text-leise)); }
 
+  /* Hinweis „quer halten“ (nur Handy hochkant) */
+  /* Deckt alles ab, was darunter liegt (Menü, Spielbild): ruhige, dunkle Fläche statt durchscheinender Ebenen */
+  #quer { z-index: 7; background: var(--sb-grund); }
+  .quer-tafel { width: min(360px, 100%); }
+  .quer-tafel svg { display: block; margin: 4px auto 14px; }
+  .quer-tafel h2 { font-size: 24px; }
+  .quer-tafel p { margin: 10px 0 0; font: 15px/1.45 var(--sb-schrift-text); color: var(--sb-text-leise); }
+
+  /* Tastenhilfe unter dem Spielbild (nicht auf Geräten mit Finger) */
   .hilfe {
-    position: absolute;
+    position: fixed;
     left: 0; right: 0; bottom: 6px;
     margin: 0;
     text-align: center;
-    font: 400 13px/1.4 var(--font-text);
-    color: #6E6F92;
+    font: 400 13px/1.4 var(--sb-schrift-text);
+    color: var(--sb-text-still);
   }
-  .hilfe kbd { font: inherit; color: #8A8BAE; }
+  :root.beruehrung .nur-tasten { display: none; }
+
+  /* ---------- Bedienflächen für Finger: links lenken, rechts Bremse und Gas, oben Pause ----------
+     Halbdurchsichtig und dunkel, mit dem Beschlag der Knöpfe. Gedrückt wird nur getönt, nichts leuchtet auf. */
+  #touch { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+  .beruehr {
+    position: absolute;
+    --hp: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--sb-weissgold) 22%, transparent);
+    border-radius: 14px;
+    background: rgba(14, 18, 29, 0.42);
+    color: color-mix(in srgb, var(--sb-text) 82%, transparent);
+    font: 600 16px/1.1 var(--sb-schrift-schild);
+    box-shadow: -3px 4px 10px -4px rgba(0, 0, 0, 0.5);
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+  }
+  .beruehr::before { inset: 3px; border-radius: 10px; opacity: 0.6; }
+  .beruehr.gedrueckt { background: color-mix(in srgb, var(--sb-signal) 20%, rgba(14, 18, 29, 0.5)); border-color: color-mix(in srgb, var(--sb-signal) 70%, transparent); color: var(--sb-weissgold); }
+  #lenkzone { left: var(--sb-aussen); bottom: max(14px, env(safe-area-inset-bottom)); width: min(34vw, 300px); height: min(32vh, 132px); }
+  #lenkzone .rille { position: absolute; left: 18%; right: 18%; top: 50%; height: 2px; margin-top: -1px; background: color-mix(in srgb, var(--sb-weissgold) 18%, transparent); }
+  #lenkzone .pfeil { position: absolute; top: 50%; transform: translateY(-50%); font: 400 30px/1 var(--sb-schrift-schild); color: color-mix(in srgb, var(--sb-text) 55%, transparent); }
+  #lenkzone .pfeil.links { left: 8%; }
+  #lenkzone .pfeil.rechts { right: 8%; }
+  #lenk-knauf {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 46px;
+    height: 46px;
+    margin: -23px 0 0 -23px;
+    border-radius: 50%;
+    border: 1px solid rgba(241, 228, 188, 0.4);
+    background: radial-gradient(circle at 62% 34%, rgba(241, 228, 188, 0.5), rgba(196, 169, 100, 0.32) 55%, rgba(122, 98, 38, 0.3));
+    box-shadow: -3px 4px 6px rgba(0, 0, 0, 0.45);
+    transform: translateX(var(--lenk, 0px));
+  }
+  #touch-gas { right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); width: min(14vw, 118px); height: min(40vh, 160px); }
+  #touch-bremse { right: calc(max(14px, env(safe-area-inset-right)) + min(14vw, 118px) + 12px); bottom: max(14px, env(safe-area-inset-bottom)); width: min(12vw, 100px); height: min(28vh, 112px); }
+  #touch-pause { left: var(--sb-aussen); top: max(12px, env(safe-area-inset-top)); width: 46px; height: 46px; border-radius: 10px; }
+  #touch-pause::before { border-radius: 7px; }
+  @media (orientation: portrait) {
+    #lenkzone { width: 46vw; height: 150px; }
+    #touch-gas { width: 21vw; height: 176px; }
+    #touch-bremse { right: calc(14px + 21vw + 10px); width: 19vw; height: 124px; }
+    #touch-pause { left: auto; right: 14px; top: auto; bottom: calc(14px + 176px + 14px); }
+    #platte-zeit .zeile { display: none; }
+  }
+
+  /* ---------- Kleine Fenster ---------- */
+  /* Handy quer: Titel links, Platte rechts, alles enger */
+  @media (max-height: 560px) and (orientation: landscape) {
+    #menue .innen { flex-direction: row; align-items: center; gap: 22px; }
+    .kopf { width: 30%; max-width: 270px; text-align: left; }
+    .titel { font-size: clamp(28px, 4.4vw, 40px); }
+    .titel-streifen { width: 80%; height: 5px; margin: 9px 0 0 4px; }
+    .kicker { margin-top: 9px; font-size: 14px; }
+    .menue-tafel { flex: 1 1 0; min-width: 0; }
+    .tafel { padding: 15px 18px 14px; }
+    .tafel h2 { font-size: 21px; }
+    .wahl-titel, .einst-tafel h3 { margin-bottom: 6px; font-size: 10.5px; }
+    .strecken { gap: 8px; }
+    .knopf.karte { padding: 7px 8px 8px; }
+    .karte .streifen { height: 24px; margin-bottom: 6px; }
+    .karte b { font-size: 15px; }
+    .karte small { font-size: 11.5px; margin-top: 1px; }
+    .unterzeile { margin-top: 6px; font-size: 13px; }
+    .zeile2 { margin-top: 10px; gap: 14px; }
+    .knopf { min-width: 92px; padding: 8px 13px; font-size: 14.5px; }
+    .knopf.haupt { min-width: 120px; }
+    .knoepfe { gap: 8px; margin-top: 12px; }
+    .tasten { margin-top: 10px; font-size: 11px; }
+    .einst-tafel h3 { margin-top: 12px; }
+    .auswahlen { margin-top: 12px; gap: 10px 14px; }
+    .steuerung, .auswahl { font-size: 12.5px; }
+    .auswahl select { padding: 5px 8px; font-size: 13.5px; }
+    .uebersetzung { margin-top: 10px; font-size: 11px; }
+    .einst-tafel .knoepfe, .pause-tafel .knoepfe { margin-top: 12px; }
+    .ergebnis-tafel table { margin-top: 8px; font-size: 13px; }
+    .ergebnis-tafel th { padding: 0 8px 4px; font-size: 10px; }
+    .ergebnis-tafel td { padding: 2px 8px; }
+    .nummer { min-width: 24px; padding: 1px 4px; font-size: 11px; }
+    #ergebnis-hinweis { margin-top: 8px; font-size: 14px; }
+  }
+  /* Schmal (Handy hochkant): eine Spalte */
+  @media (max-width: 620px) {
+    .titel { font-size: clamp(36px, 12vw, 56px); }
+    .kicker { font-size: 15px; }
+    .tafel { padding: 18px 16px 16px; }
+    .tafel h2 { font-size: 22px; }
+    .strecken { gap: 8px; }
+    .knopf.karte { padding: 7px 7px 8px; }
+    .karte .streifen { height: 30px; }
+    .karte b { font-size: 14.5px; }
+    .karte small { font-size: 11px; }
+    .zeile2 { grid-template-columns: 1fr; gap: 14px; margin-top: 16px; }
+    .knopf { min-width: 0; padding: 9px 14px; font-size: 15px; }
+    .auswahlen { grid-template-columns: 1fr; }
+    .steuerung { grid-template-columns: 1fr; gap: 2px; }
+    .steuerung dd { margin-bottom: 8px; }
+    .ergebnis-tafel table { font-size: 13px; }
+    .ergebnis-tafel td, .ergebnis-tafel th { padding-left: 5px; padding-right: 5px; }
+    .ergebnis-tafel td.fahrer { white-space: normal; }
+  }
+
+  /* ---------- Sehhilfen der Werkstatt (Muster Kugelblitz) ----------
+     Hoher Kontrast (data-vision="contrast", Grundton in data-hc), Farbenblind (cvd) und Umgekehrte Farben (invert),
+     eine Wahl für alle Werkzeuge (werkstatt.darstellung). Werte der Werkstatt: HC dunkel #000, Schrift #E0E0E0, leise
+     #C4C4C4, Rand #A0A0A0; HC hell #FFF, #000, #2B2B2B, Rand #585757. Hoher Kontrast kennt keine Verläufe, keinen
+     Schein und keine Durchsicht in den Menüs; der Beschlag bleibt. Das Spielbild bleibt dunkel, grafik.js zeichnet dort
+     Randlinien und Autos deutlicher (setzeModus). */
+  :root.ohne-uebergang *, :root.ohne-uebergang *::before, :root.ohne-uebergang *::after { transition: none !important; }
+  :root[data-vision="contrast"][data-hc="dark"] {
+    --sb-grund: #000000;
+    --sb-platte: #000000;
+    --sb-platte-hud: #000000;
+    --sb-feld: #000000;
+    --sb-kante: #A0A0A0;        /* 7,9:1 */
+    --sb-text: #E0E0E0;         /* 15,9:1 */
+    --sb-text-leise: #C4C4C4;   /* 12,0:1 */
+    --sb-text-still: #C4C4C4;
+    --sb-signal: #F0A868;       /* 10,0:1 */
+    --sb-weissgold: #F1E4BC;    /* 16,6:1 */
+    --sb-petrol: #75C7C9;       /* 11,3:1 */
+    --sb-auf-farbe: #000000;
+  }
+  :root[data-vision="contrast"][data-hc="light"] {
+    color-scheme: light;
+    --sb-grund: #FFFFFF;
+    --sb-platte: #FFFFFF;
+    --sb-platte-hud: #FFFFFF;
+    --sb-feld: #FFFFFF;
+    --sb-kante: #585757;        /* 7,2:1 */
+    --sb-text: #000000;
+    --sb-text-leise: #2B2B2B;   /* 14,2:1 */
+    --sb-text-still: #2B2B2B;
+    --sb-signal: #7F4210;       /* 7,6:1 */
+    --sb-weissgold: #625633;    /* 7,3:1 */
+    --sb-petrol: #1F5F62;       /* 7,4:1 */
+    --sb-auf-farbe: #FFFFFF;
+  }
+  :root[data-vision="contrast"] { background: var(--sb-grund); }
+  :root[data-vision="contrast"] :is(.beschlag, .platte) { background: var(--sb-platte); box-shadow: none; }
+  :root[data-vision="contrast"] .platte { border-color: var(--sb-kante); }
+  :root[data-vision="contrast"] .beschlag::before { border: 0; -webkit-mask: none; mask: none; background: linear-gradient(var(--kappe), var(--kappe)) top / 100% 4px no-repeat; }
+  :root[data-vision="contrast"] :is(.beschlag::after, .platte::before, .knopf::before, .beruehr::before) { border-color: var(--sb-kante); opacity: 1; }
+  :root[data-vision="contrast"] #buehne { box-shadow: 0 0 0 1px var(--sb-kante); }
+  :root[data-vision="contrast"] #schleier { background: rgba(0, 0, 0, 0.78); }
+  :root[data-vision="contrast"] .titel { background: none; -webkit-text-fill-color: currentColor; color: var(--sb-text); filter: none; }
+  :root[data-vision="contrast"] .titel-streifen { opacity: 1; }
+  :root[data-vision="contrast"] .knopf { background: var(--sb-feld); border-color: var(--sb-kante); color: var(--sb-text); box-shadow: none; }
+  :root[data-vision="contrast"] .knopf.haupt { border-color: var(--sb-signal); border-width: 2px; }
+  :root[data-vision="contrast"] .knopf[aria-pressed="true"],
+  :root[data-vision="contrast"] .karte[aria-pressed="true"] :is(b, small) { color: var(--sb-auf-farbe); }
+  :root[data-vision="contrast"] .knopf[aria-pressed="true"] { background: var(--sb-signal); border-color: var(--sb-signal); }
+  :root[data-vision="contrast"] :is(.knopf:hover, .knopf:focus-visible) { border-color: var(--sb-text); }
+  :root[data-vision="contrast"] :focus-visible { outline: 3px solid var(--sb-signal); outline-offset: 2px; }
+  :root[data-vision="contrast"] .balken { background: var(--sb-grund); border-color: var(--sb-kante); }
+  :root[data-vision="contrast"] .balken > i { background: var(--sb-text); }
+  :root[data-vision="contrast"] .auswahl select { background: var(--sb-feld); border-color: var(--sb-kante); }
+  :root[data-vision="contrast"] .ergebnis-tafel th { border-bottom-color: var(--sb-kante); }
+  :root[data-vision="contrast"] .ergebnis-tafel tr.du td { background: transparent; color: var(--sb-text); font-weight: 700; }
+  :root[data-vision="contrast"] .ergebnis-tafel tr.du td:first-child { box-shadow: inset 4px 0 0 var(--sb-petrol); }
+  :root[data-vision="contrast"] .beruehr { border: 2px solid var(--sb-text); color: var(--sb-text); box-shadow: none; }
+  :root[data-vision="contrast"][data-hc="dark"] .beruehr { background: rgba(0, 0, 0, 0.62); }
+  :root[data-vision="contrast"][data-hc="light"] .beruehr { background: rgba(255, 255, 255, 0.8); }
+  :root[data-vision="contrast"] .beruehr.gedrueckt { background: var(--sb-signal); color: var(--sb-auf-farbe); border-color: var(--sb-signal); }
+  :root[data-vision="contrast"] #lenk-knauf { background: var(--sb-text); border-color: var(--sb-grund); box-shadow: none; }
+  :root[data-vision="contrast"] #lenkzone .rille { background: var(--sb-text); }
+
+  /* Farbenblind: Signalfarben nach Okabe und Ito, gewählte Teile zusätzlich fett und unterstrichen */
+  :root[data-vision="cvd"] {
+    --sb-signal: #E69F00;
+    --sb-petrol: #56B4E9;
+    --sb-weissgold: #F0E442;
+  }
+  :root:is([data-vision="cvd"], [data-vision="contrast"]) .knopf[aria-pressed="true"],
+  :root:is([data-vision="cvd"], [data-vision="contrast"]) .karte[aria-pressed="true"] b { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+  :root:is([data-vision="cvd"], [data-vision="contrast"]) .ergebnis-tafel td.beste-runde { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* Umgekehrte Farben wie der Farbfilter von Windows, auch das Spielbild (wie der Tisch bei Kugelblitz).
+     Rasterbilder und alles mit data-echt werden zurückgedreht und bleiben echt; gedruckt wird nie umgedreht. */
+  :root[data-vision="invert"] { filter: invert(1); }
+  :root[data-vision="invert"] :is(img:not([src*=".svg"]), video, [data-echt]):not([data-echt] *) { filter: invert(1); }
+  @media print {
+    :root[data-vision="invert"],
+    :root[data-vision="invert"] :is(img:not([src*=".svg"]), video, [data-echt]):not([data-echt] *) { filter: none; }
+  }
 </style>
 </head>
 <body>
 <main id="buehne">
-  <canvas id="leinwand" width="427" height="240" aria-label="Spielbild: Straße, Himmel, die anderen Wagen und dein Wagen von hinten"></canvas>
+  <canvas id="leinwand" width="427" height="240" role="img" aria-label="Spielbild" data-i-aria="aria_leinwand"></canvas>
   <div id="hud">
     <div class="platte" id="platte-stand">
-      <div id="block-platz"><span class="etikett">Platz</span><span class="wert" id="platz">6/8</span></div>
-      <div><span class="etikett">Runde</span><span class="wert" id="runde">1/3</span></div>
+      <div id="block-platz"><span class="etikett" data-i="platz">Platz</span><span class="wert" id="platz">6/8</span></div>
+      <div><span class="etikett" data-i="runde">Runde</span><span class="wert" id="runde">1/3</span></div>
     </div>
     <div class="platte" id="platte-zeit">
-      <span class="etikett">Zeit</span><span class="wert" id="zeit">0:00.0</span>
-      <div class="zeile"><span class="etikett">Letzte</span><span class="wert" id="letzte">-:--.--</span></div>
-      <div class="zeile"><span class="etikett">Beste</span><span class="wert" id="beste">-:--.--</span></div>
-      <div class="zeile" id="zeile-rekord" hidden><span class="etikett">Rekord</span><span class="wert" id="rekord">-:--.--</span></div>
+      <span class="etikett" data-i="zeit">Zeit</span><span class="wert" id="zeit">0:00,0</span>
+      <div class="zeile"><span class="etikett" data-i="letzte">Letzte</span><span class="wert" id="letzte"></span></div>
+      <div class="zeile"><span class="etikett" data-i="beste">Beste</span><span class="wert" id="beste"></span></div>
+      <div class="zeile" id="zeile-rekord" hidden><span class="etikett" data-i="rekord">Rekord</span><span class="wert" id="rekord"></span></div>
     </div>
-    <div class="platte" id="platte-tempo"><span class="wert" id="tempo">0</span><span class="einheit">km/h</span><div class="balken"><i id="balken"></i></div></div>
-    <div class="platte" id="platte-bot" hidden><span class="etikett">Bot am Steuer</span></div>
-    <div class="platte" id="ampel" hidden aria-label="Startampel"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="platte" id="platte-tempo"><span class="wert" id="tempo">0</span><span class="einheit" data-i="kmh">km/h</span><div class="balken"><i id="balken"></i></div></div>
+    <div class="platte" id="platte-bot" hidden><span class="etikett" data-i="bot">Bot am Steuer</span></div>
+    <div class="platte" id="ampel" hidden role="img" aria-label="Startampel" data-i-aria="aria_ampel"><i></i><i></i><i></i><i></i><i></i></div>
   </div>
   <div id="schleier" hidden></div>
-  <section class="tafel" id="menue" hidden aria-labelledby="menue-titel">
-    <h1 id="menue-titel">Streckenblitz</h1>
-    <p class="unterzeile" id="menue-unterzeile">Möwenkap, Küste in der Abenddämmerung</p>
-    <span class="wahl-titel">Strecke</span>
-    <div class="wahl strecken" id="streckenwahl"></div>
-    <span class="wahl-titel">Modus</span>
-    <div class="wahl">
-      <button class="knopf" type="button" data-modus="rennen" aria-pressed="true">Rennen</button>
-      <button class="knopf" type="button" data-modus="zeitfahren" aria-pressed="false">Zeitfahren</button>
+</main>
+
+<section class="ebene" id="menue" hidden aria-labelledby="menue-titel">
+  <div class="innen">
+    <header class="kopf">
+      <h1 class="titel" id="menue-titel">Streckenblitz</h1>
+      <i class="titel-streifen" aria-hidden="true"></i>
+      <p class="kicker" data-i="untertitel">Formelrennen im Pixelraster</p>
+    </header>
+    <div class="tafel beschlag menue-tafel">
+      <span class="wahl-titel" data-i="strecke">Strecke</span>
+      <div class="strecken" id="streckenwahl"></div>
+      <p class="unterzeile" id="menue-unterzeile"></p>
+      <div class="zeile2">
+        <div>
+          <span class="wahl-titel" data-i="modus">Modus</span>
+          <div class="wahl">
+            <button class="knopf" type="button" data-modus="rennen" aria-pressed="true" data-i="rennen">Rennen</button>
+            <button class="knopf" type="button" data-modus="zeitfahren" aria-pressed="false" data-i="zeitfahren">Zeitfahren</button>
+          </div>
+        </div>
+        <div>
+          <span class="wahl-titel" data-i="runden">Runden</span>
+          <div class="wahl">
+            <button class="knopf" type="button" data-runden="3" aria-pressed="true">3</button>
+            <button class="knopf" type="button" data-runden="5" aria-pressed="false">5</button>
+          </div>
+        </div>
+      </div>
+      <div class="knoepfe">
+        <button class="knopf haupt" type="button" id="los" data-i="los">Los</button>
+        <button class="knopf" type="button" id="ton" aria-pressed="false">Ton aus</button>
+        <button class="knopf" type="button" id="zu-einstellungen" data-i="einstellungen">Einstellungen</button>
+        <button class="knopf knopf-install" type="button" id="installieren" hidden><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false"><path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i="installieren">Installieren</span></button>
+      </div>
+      <p class="tasten nur-tasten" data-i="menue_tasten"></p>
     </div>
-    <span class="wahl-titel">Runden</span>
-    <div class="wahl">
-      <button class="knopf" type="button" data-runden="3" aria-pressed="true">3 Runden</button>
-      <button class="knopf" type="button" data-runden="5" aria-pressed="false">5 Runden</button>
+  </div>
+</section>
+
+<section class="ebene" id="einstellungen" hidden aria-labelledby="einst-titel">
+  <div class="innen tafel beschlag einst-tafel">
+    <h2 id="einst-titel" data-i="einstellungen">Einstellungen</h2>
+    <div class="auswahlen">
+      <label class="auswahl"><span data-i="sprache">Sprache</span><select id="sprache"></select></label>
+      <!-- Sehhilfen der Werkstatt: Normal, Hoher Kontrast dunkel und hell, Farbenblind, Umkehr -->
+      <label class="auswahl"><span data-i="darstellung">Darstellung</span><select id="darstellung"></select></label>
     </div>
+    <h3 data-i="steuerung">Steuerung</h3>
+    <dl class="steuerung">
+      <dt data-i="st_tastatur">Tastatur</dt><dd data-i="hilfe_tasten"></dd>
+      <dt data-i="st_pad">Gamepad</dt><dd data-i="st_pad_text"></dd>
+      <dt data-i="st_touch">Touch</dt><dd data-i="st_touch_text"></dd>
+    </dl>
+    <p class="uebersetzung" data-i="uebersetzung"></p>
+    <div class="knoepfe"><button class="knopf haupt" type="button" id="einst-zurueck" data-i="zurueck">Zurück</button></div>
+  </div>
+</section>
+
+<section class="ebene" id="pause" hidden aria-labelledby="pause-titel">
+  <div class="innen tafel beschlag pause-tafel">
+    <h2 id="pause-titel" data-i="pause">Pause</h2>
     <div class="knoepfe">
-      <button class="knopf haupt" type="button" id="los">Los</button>
-      <button class="knopf" type="button" id="ton" aria-pressed="false">Ton aus</button>
+      <button class="knopf haupt" type="button" id="weiter" data-i="weiter">Weiter</button>
+      <button class="knopf" type="button" id="neu-starten" data-i="neu_starten">Neu starten</button>
+      <button class="knopf" type="button" id="zum-menue" data-i="zum_menue">Zum Menü</button>
     </div>
-    <p class="tasten">Enter startet · ← → Strecke · R Rennen · Z Zeitfahren · 3 oder 5 Runden · T Ton</p>
-  </section>
-  <section class="tafel" id="pause" hidden aria-labelledby="pause-titel">
-    <h2 id="pause-titel">Pause</h2>
-    <div class="knoepfe">
-      <button class="knopf haupt" type="button" id="weiter">Weiter</button>
-      <button class="knopf" type="button" id="neu-starten">Neu starten</button>
-      <button class="knopf" type="button" id="zum-menue">Zum Menü</button>
-    </div>
-    <p class="tasten">Esc oder P fährt weiter</p>
-  </section>
-  <section class="tafel" id="ergebnis" hidden aria-labelledby="ergebnis-titel">
-    <h2 id="ergebnis-titel">Ergebnis</h2>
+    <p class="tasten nur-tasten" data-i="pause_tasten"></p>
+  </div>
+</section>
+
+<section class="ebene" id="ergebnis" hidden aria-labelledby="ergebnis-titel">
+  <div class="innen tafel beschlag ergebnis-tafel" id="ergebnis-tafel">
+    <h2 id="ergebnis-titel"></h2>
     <table>
       <thead id="ergebnis-kopf"></thead>
       <tbody id="ergebnis-zeilen"></tbody>
     </table>
     <p id="ergebnis-hinweis"></p>
     <div class="knoepfe">
-      <button class="knopf haupt" type="button" id="nochmal">Nochmal</button>
-      <button class="knopf" type="button" id="ergebnis-menue">Zum Menü</button>
+      <button class="knopf haupt" type="button" id="nochmal" data-i="nochmal">Nochmal</button>
+      <button class="knopf" type="button" id="ergebnis-menue" data-i="zum_menue">Zum Menü</button>
     </div>
-  </section>
-</main>
-<p class="hilfe">Gas <kbd>↑</kbd> oder <kbd>W</kbd> · Bremse <kbd>↓</kbd>, <kbd>S</kbd> oder <kbd>Leertaste</kbd> · Lenken <kbd>←</kbd> <kbd>→</kbd> oder <kbd>A</kbd> <kbd>D</kbd> · Pause <kbd>Esc</kbd> oder <kbd>P</kbd></p>
+  </div>
+</section>
+
+<div id="touch" hidden>
+  <div class="beruehr" id="lenkzone" role="group" aria-label="Lenken" data-i-aria="aria_lenkzone"><i class="rille"></i><i class="pfeil links" aria-hidden="true">‹</i><i class="pfeil rechts" aria-hidden="true">›</i><i id="lenk-knauf"></i></div>
+  <button class="beruehr" type="button" id="touch-bremse" data-i="touch_bremse">Bremse</button>
+  <button class="beruehr" type="button" id="touch-gas" data-i="touch_gas">Gas</button>
+  <button class="beruehr" type="button" id="touch-pause" aria-label="Pause" data-i-aria="pause"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M8.5 5.5v13M15.5 5.5v13" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></button>
+</div>
+
+<section class="ebene" id="quer" hidden aria-labelledby="quer-titel">
+  <div class="innen tafel beschlag quer-tafel">
+    <svg viewBox="0 0 120 80" width="120" height="80" aria-hidden="true" focusable="false">
+      <rect x="18" y="8" width="30" height="54" rx="5" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="2.5" color="#A3AABD"/>
+      <rect x="44" y="30" width="62" height="34" rx="5" fill="none" stroke="#D58A4E" stroke-width="2.5"/>
+      <path d="M58 14c14 0 24 6 28 14" fill="none" stroke="#F1E4BC" stroke-opacity=".6" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M80 26l6 3 2-7" fill="none" stroke="#F1E4BC" stroke-opacity=".6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h2 id="quer-titel" data-i="quer_titel">Bitte quer halten</h2>
+    <p data-i="quer_text"></p>
+    <div class="knoepfe"><button class="knopf" type="button" id="quer-trotzdem" data-i="quer_trotzdem">Trotzdem spielen</button></div>
+  </div>
+</section>
+
+<p class="hilfe nur-tasten" data-i="hilfe_tasten"></p>
 
 <script src="strecke.js"></script>
 <script src="physik.js"></script>
@@ -265,8 +732,10 @@
 <script>
 (function () {
   "use strict";
-  const S = window.Strecke, P = window.Physik, R = window.Rennen, G = window.Grafik, T = window.Ton;
+  const S = window.Strecke, P = window.Physik, R = window.Rennen, G = window.Grafik, T = window.Ton, SP = window.Sprachen;
   const FREI_RUNDEN = 3; // freie Fahrt (?start): Runde x/3 als Trainingsserie wie in M1
+  const wurzel = document.documentElement;
+  const el = (id) => document.getElementById(id);
 
   /*
    * URL-Parameter (für Werkzeuge, Tests und Fotos):
@@ -277,6 +746,7 @@
    *   ?zeitraffer=<1..20>            die Zeit läuft so viel schneller
    *   ?samen=<zahl>                  fester Zufall (Ampelpause, Fahrfehler)
    *   ?strecke=moewenkap|mondsenke|tannenjoch
+   *   ?sprache=de|en|…               Sprache nur für diesen Aufruf (wertet der Kopf der Seite aus)
    */
   const parameter = new URLSearchParams(location.search);
   const mitBot = parameter.get("bot") === "1";
@@ -286,10 +756,58 @@
 
   const L = S.KONST.SEGMENT_LAENGE;
   const uhr = { konto: 0 };
+  const begrenze = (v, a, b) => (v < a ? a : v > b ? b : v);
 
   // --- Kleiner Speicher im Browser (darf fehlen oder gesperrt sein) ---------------------
   function lesen(schluessel) { try { return localStorage.getItem(schluessel); } catch { return null; } }
   function schreiben(schluessel, wert) { try { localStorage.setItem(schluessel, wert); } catch { /* ohne Speicher eben nur für diese Sitzung */ } }
+
+  // --- Sprache: erkannt im Kopf der Seite, gewechselt in den Einstellungen ----------------
+  let sprache = window.sbSprache || "de";
+  const tx = (k, w) => SP.text(sprache, k, w);
+  const zeitGenau = (t) => SP.zeit(sprache, t, 2);
+  const zeitZehntel = (t) => SP.zeit(sprache, t, 1, true);
+  // Rückstand: unter einer Minute in Sekunden (de 12,34 s), sonst als Zeit
+  function rueckstandText(t) {
+    return Math.round(t * 100) < 6000 ? tx("sekunden", { s: SP.dezimal(sprache, t, 2) }) : zeitGenau(t);
+  }
+
+  // --- Sehhilfen der Werkstatt (Muster Kugelblitz) -----------------------------------------------
+  // Eine Wahl für alle Werkzeuge: localStorage werkstatt.darstellung, roher Text (system, light, dark, hc-dark,
+  // hc-light, cvd-dark, cvd-light, invert). Fünf Einträge: Normal, Hoher Kontrast dunkel, Hoher Kontrast hell,
+  // Farbenblind, Umkehr. Der Kopf der Seite setzt data-vision und data-hc vor dem ersten Bild; hier folgen
+  // Auswahlfeld, Laufzeit und das Spielbild (grafik.setzeModus). Lichtsicherheit: Wer mit den Pfeiltasten durch das
+  // Feld läuft, wechselte mit jeder Taste zwischen dunkel und hell; deshalb wechselt die Darstellung höchstens alle
+  // 1,5 s, gezeigt wird der neueste Wunsch.
+  const SCHLUESSEL_DARSTELLUNG = "werkstatt.darstellung";
+  const DARST_OPTIONEN = [["normal", "darst_normal"], ["hc-dark", "darst_hc_dunkel"], ["hc-light", "darst_hc_hell"],
+    ["cvd", "darst_farbenblind"], ["invert", "darst_umkehr"]];
+  const DARST_HALTEN = 1.5;
+  const THEMA_FARBE = { normal: "#0A0D15", "hc-dunkel": "#000000", "hc-hell": "#FFFFFF", farbenblind: "#0A0D15", umkehr: "#F0F0DE" };
+  const medium = (q) => !!(window.matchMedia && matchMedia(q).matches);
+  let darstOhneSpeicher = null;
+  const gespeicherteDarstellung = () => lesen(SCHLUESSEL_DARSTELLUNG) || darstOhneSpeicher || "system";
+  function darstOption(v) {
+    if (v === "hc-dark" || v === "hc-light" || v === "invert") return v;
+    if (v === "cvd-dark" || v === "cvd-light") return "cvd";
+    return "normal";
+  }
+  function darstModus(v) {
+    if (v === "hc-dark") return "hc-dunkel";
+    if (v === "hc-light") return "hc-hell";
+    if (v === "cvd-dark" || v === "cvd-light") return "farbenblind";
+    if (v === "invert") return "umkehr";
+    if (v === "system" && (medium("(prefers-contrast: more)") || medium("(forced-colors: active)"))) {
+      return medium("(prefers-color-scheme: dark)") ? "hc-dunkel" : "hc-hell";
+    }
+    return "normal";
+  }
+  function modusAusSeite() {
+    const s = wurzel.getAttribute("data-vision");
+    if (s === "contrast") return wurzel.getAttribute("data-hc") === "light" ? "hc-hell" : "hc-dunkel";
+    return s === "cvd" ? "farbenblind" : s === "invert" ? "umkehr" : "normal";
+  }
+  let darstJetzt = modusAusSeite();
 
   // --- Strecken: gebaut und gezeichnet erst, wenn sie gewählt werden -------------------
   const leinwandNeu = (b, h) => {
@@ -307,6 +825,7 @@
       gebaut.set(id, { strecke: s, grafik: G.erzeuge(s, leinwandNeu, R.FAHRER) });
     }
     ({ strecke, grafik } = gebaut.get(id));
+    grafik.setzeModus(darstJetzt);
   }
   streckeSetzen(parameter.get("strecke") || lesen("streckenblitz.strecke") || S.REIHE[0]);
   const startSegment = () => Math.max(0, Math.min(strecke.anzahl - 1, Math.floor(Number(parameter.get("start")) || 0)));
@@ -323,9 +842,9 @@
   const ton = T.erzeuge();
   let tonGewuenscht = lesen("streckenblitz.ton") === "an";
   function tonZeigen() {
-    const k = document.getElementById("ton");
+    const k = el("ton");
     k.setAttribute("aria-pressed", String(tonGewuenscht));
-    k.textContent = tonGewuenscht ? "Ton an" : "Ton aus";
+    k.textContent = tx(tonGewuenscht ? "ton_an" : "ton_aus");
   }
   function tonUmschalten() {
     tonGewuenscht = !tonGewuenscht;
@@ -341,34 +860,52 @@
   window.addEventListener("pointerdown", ersteGeste, true);
   window.addEventListener("keydown", ersteGeste, true);
 
+  // --- Finger: Geräte mit grobem Zeiger, oder sobald jemand den Bildschirm berührt ----------
+  let finger = wurzel.classList.contains("beruehrung");
+  // Breite und Höhe ohne Rollbalken (innerWidth zählt sie mit und wächst, wenn etwas übersteht)
+  const fensterB = () => document.documentElement.clientWidth || window.innerWidth;
+  const fensterH = () => document.documentElement.clientHeight || window.innerHeight;
+  const hochkant = () => fensterH() > fensterB();
+  window.addEventListener("touchstart", () => {
+    if (finger) return;
+    finger = true;
+    wurzel.classList.add("beruehrung");
+    groesse();
+    bedienungZeigen();
+    querPruefen();
+  }, { passive: true, capture: true });
+
   // --- Bildgröße: ganzzahlig in Gerätepixeln, Rest bleibt dunkel ------------------
-  const buehne = document.getElementById("buehne");
-  const leinwand = document.getElementById("leinwand");
+  // Nur hochkant mit Finger (nach „Trotzdem spielen“) darf das Bild krumm skalieren und steht oben, darunter liegen
+  // die Bedienflächen; ganzzahlig bliebe dort ein Viertel der Breite leer.
+  const buehne = el("buehne");
+  const leinwand = el("leinwand");
   const sicht = leinwand.getContext("2d");
   function groesse() {
     const dpr = window.devicePixelRatio || 1;
-    const platzB = window.innerWidth * dpr, platzH = (window.innerHeight - 28) * dpr;
+    const hoch = finger && hochkant();
+    const hilfe = !finger ? 28 : 0;
+    const platzB = fensterB() * dpr, platzH = (hoch ? fensterH() * 0.5 : fensterH() - hilfe) * dpr;
     let s = Math.floor(Math.min(platzB / G.B, platzH / G.H));
-    if (s < 1) s = Math.min(platzB / G.B, platzH / G.H); // sehr kleiner Bildschirm: verkleinern, nicht verzerren
+    if (s < 1 || (hoch && s * G.B < 0.8 * platzB)) s = Math.min(platzB / G.B, platzH / G.H);
     leinwand.width = Math.round(G.B * s);
     leinwand.height = Math.round(G.H * s);
     leinwand.style.width = leinwand.width / dpr + "px";
     leinwand.style.height = leinwand.height / dpr + "px";
     buehne.style.setProperty("--gp", (leinwand.width / dpr / G.B) + "px");
-    buehne.style.top = "calc(50% - 14px)";
+    buehne.style.top = hoch ? (leinwand.height / dpr / 2 + 12) + "px" : "calc(50% - " + hilfe / 2 + "px)";
     sicht.imageSmoothingEnabled = false;
     neuZeichnen = true;
   }
   let neuZeichnen = true;
-  window.addEventListener("resize", groesse);
+  window.addEventListener("resize", () => { groesse(); querPruefen(); });
 
   // --- Zustand ---------------------------------------------------------------------
-  // zustand: menue, fahrt, pause, ergebnis
+  // zustand: menue, einstellungen, fahrt, pause, ergebnis
   let zustand = "menue";
-  let wahl = { modus: "rennen", runden: Number(parameter.get("runden")) === 5 ? 5 : 3 };
+  const wahl = { modus: "rennen", runden: Number(parameter.get("runden")) === 5 ? 5 : 3 };
   let rennen = null;
   let vorher = [];             // Stellen aller Autos vor dem letzten Takt (zum Zeichnen dazwischen)
-  const el = (id) => document.getElementById(id);
 
   function neuesRennen(modus) {
     const samen = parameter.has("samen") ? Number(parameter.get("samen")) : Math.floor(Math.random() * 1e9);
@@ -378,26 +915,37 @@
     hudZuruecksetzen();
   }
 
-  // --- Tafeln ----------------------------------------------------------------------
-  const tafeln = { menue: el("menue"), pause: el("pause"), ergebnis: el("ergebnis") };
+  // --- Ebenen ----------------------------------------------------------------------
+  const tafeln = { menue: el("menue"), einstellungen: el("einstellungen"), pause: el("pause"), ergebnis: el("ergebnis") };
   function zeigeTafel(name) {
     for (const [n, t] of Object.entries(tafeln)) t.hidden = n !== name;
     el("schleier").hidden = !name;
-    el("hud").classList.toggle("leise", name === "menue" || name === "ergebnis");
-    const fokus = { menue: "los", pause: "weiter", ergebnis: "nochmal" }[name];
-    if (fokus) el(fokus).focus({ preventScroll: true });
+    el("hud").classList.toggle("leise", name !== null && name !== "pause");
+    bedienungZeigen();
+    const fokus = { menue: "los", einstellungen: "sprache", pause: "weiter", ergebnis: "nochmal" }[name];
+    if (fokus && !finger) el(fokus).focus({ preventScroll: true });
+    else if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  }
+  function menueTexte() {
+    el("menue-unterzeile").textContent = tx("strecke_text", { name: strecke.name, kurz: tx("kurz_" + strecke.id) });
+    for (const k of document.querySelectorAll("[data-strecke]")) {
+      const rekord = rekordLesen(k.dataset.strecke);
+      k.querySelector(".karten-rekord").textContent = rekord ? tx("karte_rekord", { zeit: zeitGenau(rekord) }) : tx("karte_kein_rekord");
+      k.title = tx("kurz_" + k.dataset.strecke);
+    }
+    for (const k of document.querySelectorAll("[data-runden]")) k.textContent = tx("runden_n", { n: Number(k.dataset.runden) });
   }
   function menueZeigen() {
     zustand = "menue";
     neuesRennen(wahl.modus === "zeitfahren" ? "zeitfahren" : "rennen"); // Startaufstellung als Hintergrund
-    el("menue-unterzeile").textContent = strecke.name + ", " + strecke.kurz;
-    for (const k of document.querySelectorAll("[data-strecke]")) {
-      const rekord = rekordLesen(k.dataset.strecke);
-      k.querySelector(".karten-rekord").textContent = rekord ? zeitGenau(rekord) : "noch keiner";
-    }
+    menueTexte();
     wahlZeigen();
     zeigeTafel("menue");
     neuZeichnen = true;
+  }
+  function einstellungenZeigen() {
+    zustand = "einstellungen";
+    zeigeTafel("einstellungen");
   }
   // Karten der Streckenwahl aus den Bauplänen: Name, ein Streifen aus Himmel und Boden, Rekord
   for (const id of S.REIHE) {
@@ -406,7 +954,6 @@
     k.className = "knopf karte";
     k.type = "button";
     k.dataset.strecke = id;
-    k.title = plan.kurz;
     const streifen = document.createElement("i");
     streifen.className = "streifen";
     streifen.style.background = "linear-gradient(180deg, " + f.himmel.map(([t, c]) => c + " " + Math.round(t * 62) + "%").join(", ") +
@@ -414,7 +961,7 @@
     const name = document.createElement("b");
     name.textContent = plan.name;
     const rek = document.createElement("small");
-    rek.append("Rekord ", Object.assign(document.createElement("span"), { className: "karten-rekord" }));
+    rek.className = "karten-rekord";
     k.append(streifen, name, rek);
     k.addEventListener("click", () => streckeWaehlen(id));
     el("streckenwahl").appendChild(k);
@@ -424,7 +971,11 @@
     schreiben("streckenblitz.strecke", strecke.id);
     menueZeigen();
     const k = document.querySelector('[data-strecke="' + strecke.id + '"]');
-    if (k) k.focus({ preventScroll: true });
+    if (k && !finger) k.focus({ preventScroll: true });
+  }
+  function streckeWeiter(schritt) {
+    const i = S.REIHE.indexOf(strecke.id) + schritt;
+    streckeWaehlen(S.REIHE[(i + S.REIHE.length) % S.REIHE.length]);
   }
   function wahlZeigen() {
     for (const k of document.querySelectorAll("[data-strecke]")) k.setAttribute("aria-pressed", String(k.dataset.strecke === strecke.id));
@@ -438,14 +989,15 @@
     zuletzt = null;
   }
   function pause(an) {
-    if (an && zustand === "fahrt") { zustand = "pause"; zeigeTafel("pause"); gedrueckt.clear(); }
+    if (an && zustand === "fahrt") { zustand = "pause"; zeigeTafel("pause"); gedrueckt.clear(); beruehrungLoesen(); }
     else if (!an && zustand === "pause") { zustand = "fahrt"; zeigeTafel(null); zuletzt = null; }
   }
   for (const k of document.querySelectorAll("[data-modus]")) k.addEventListener("click", () => { wahl.modus = k.dataset.modus; menueZeigen(); });
   for (const k of document.querySelectorAll("[data-runden]")) k.addEventListener("click", () => { wahl.runden = Number(k.dataset.runden); wahlZeigen(); });
   el("los").addEventListener("click", () => starten());
   el("ton").addEventListener("click", tonUmschalten);
-  tonZeigen();
+  el("zu-einstellungen").addEventListener("click", einstellungenZeigen);
+  el("einst-zurueck").addEventListener("click", menueZeigen);
   el("weiter").addEventListener("click", () => pause(false));
   el("neu-starten").addEventListener("click", () => starten(rennen.modus));
   el("zum-menue").addEventListener("click", menueZeigen);
@@ -453,27 +1005,29 @@
   el("ergebnis-menue").addEventListener("click", menueZeigen);
 
   // --- Tastatur ----------------------------------------------------------------
+  // Fahren über die Lage der Tasten (e.code, W A S D auch auf AZERTY), Kürzel im Menü über die Beschriftung (e.key),
+  // damit Z auch auf einer deutschen Tastatur das Zeitfahren wählt.
   const gedrueckt = new Set();
   const TASTEN = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD", "Space"]);
   window.addEventListener("keydown", (e) => {
-    const aufKnopf = document.activeElement && document.activeElement.tagName === "BUTTON";
+    const aufKnopf = document.activeElement && ["BUTTON", "SELECT"].includes(document.activeElement.tagName);
     if (e.code === "Escape" || e.code === "KeyP") {
       if (zustand === "fahrt") pause(true);
       else if (zustand === "pause") pause(false);
-      else if (zustand === "ergebnis" && e.code === "Escape") menueZeigen();
+      else if ((zustand === "ergebnis" || zustand === "einstellungen") && e.code === "Escape") menueZeigen();
       e.preventDefault();
       return;
     }
     if (zustand === "menue" && !e.repeat) {
-      if (e.code === "KeyR") { wahl.modus = "rennen"; menueZeigen(); }
-      else if (e.code === "KeyZ") { wahl.modus = "zeitfahren"; menueZeigen(); }
-      else if (e.code === "Digit3" || e.code === "Numpad3") { wahl.runden = 3; wahlZeigen(); }
-      else if (e.code === "Digit5" || e.code === "Numpad5") { wahl.runden = 5; wahlZeigen(); }
+      const k = (e.key || "").toLowerCase();
+      if (k === "r") { wahl.modus = "rennen"; menueZeigen(); }
+      else if (k === "z") { wahl.modus = "zeitfahren"; menueZeigen(); }
+      else if (k === "3") { wahl.runden = 3; wahlZeigen(); }
+      else if (k === "5") { wahl.runden = 5; wahlZeigen(); }
       else if ((e.code === "Enter" || e.code === "NumpadEnter") && !aufKnopf) starten();
-      else if (e.code === "KeyT") tonUmschalten();
+      else if (k === "t") tonUmschalten();
       else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
-        const i = S.REIHE.indexOf(strecke.id) + (e.code === "ArrowRight" ? 1 : -1);
-        streckeWaehlen(S.REIHE[(i + S.REIHE.length) % S.REIHE.length]);
+        streckeWeiter(e.code === "ArrowRight" ? 1 : -1);
         e.preventDefault();
       }
       return;
@@ -483,7 +1037,7 @@
     gedrueckt.add(e.code);
   });
   window.addEventListener("keyup", (e) => { gedrueckt.delete(e.code); });
-  window.addEventListener("blur", () => gedrueckt.clear());
+  window.addEventListener("blur", () => { gedrueckt.clear(); beruehrungLoesen(); });
   function tastenEingabe() {
     const t = (a, b) => gedrueckt.has(a) || gedrueckt.has(b);
     return {
@@ -493,23 +1047,117 @@
     };
   }
 
+  // --- Gamepad (Gamepad-API, Standardbelegung) ---------------------------------------------
+  // Linker Stick lenkt analog mit Totzone, Steuerkreuz digital. Rechter Trigger gibt Gas, linker bremst (beide analog),
+  // A gibt auch Gas, B bremst. Start: Pause, weiter, im Menü und nach dem Ziel los. Im Menü wechselt das Steuerkreuz
+  // die Strecke und A startet, nach dem Ziel startet A neu und B führt ins Menü.
+  const TOTZONE = 0.15;
+  const pad = { gas: 0, bremse: 0, lenken: 0, vorher: [] };
+  function padLesen() {
+    let p = null;
+    try { for (const g of (navigator.getGamepads ? navigator.getGamepads() : [])) if (g && g.connected) { p = g; break; } } catch { /* gesperrt */ }
+    if (!p) { pad.gas = pad.bremse = pad.lenken = 0; pad.vorher = []; return; }
+    const knopf = (i) => { const b = p.buttons[i]; return b ? (b.value || (b.pressed ? 1 : 0)) : 0; };
+    const neu = (i) => !!(p.buttons[i] && p.buttons[i].pressed && !pad.vorher[i]);
+    const ax = p.axes[0] || 0;
+    const stick = Math.abs(ax) < TOTZONE ? 0 : Math.sign(ax) * (Math.abs(ax) - TOTZONE) / (1 - TOTZONE);
+    pad.lenken = begrenze(stick + knopf(15) - knopf(14), -1, 1);
+    pad.gas = Math.max(knopf(7), knopf(0));
+    pad.bremse = Math.max(knopf(6), knopf(1));
+    if (neu(9)) {
+      if (zustand === "fahrt") pause(true);
+      else if (zustand === "pause") pause(false);
+      else if (zustand === "menue") starten();
+      else if (zustand === "ergebnis") starten(rennen.modus);
+      else if (zustand === "einstellungen") menueZeigen();
+    } else if (zustand === "menue") {
+      if (neu(0)) starten();
+      else if (neu(14)) streckeWeiter(-1);
+      else if (neu(15)) streckeWeiter(1);
+    } else if (zustand === "ergebnis") {
+      if (neu(0)) starten(rennen.modus);
+      else if (neu(1)) menueZeigen();
+    } else if (zustand === "einstellungen" && neu(1)) menueZeigen();
+    pad.vorher = p.buttons.map((b) => b.pressed);
+  }
+
+  // --- Bedienflächen für Finger ---------------------------------------------------------------
+  // Lenkzone: wo der Finger liegt, so stark wird gelenkt (Mitte gerade, 70 % der halben Breite voll), mit kleiner
+  // Totzone. Gas und Bremse wirken, solange ein Finger darauf liegt. Mehrere Finger gleichzeitig gehen.
+  const beruehrung = { gas: 0, bremse: 0, lenken: 0 };
+  const lenkzone = el("lenkzone"), knauf = el("lenk-knauf");
+  function lenkenAus(e) {
+    const r = lenkzone.getBoundingClientRect();
+    const halb = r.width / 2;
+    const u = (e.clientX - (r.left + halb)) / (halb * 0.7);
+    beruehrung.lenken = Math.abs(u) < 0.08 ? 0 : begrenze(u, -1, 1);
+    knauf.style.setProperty("--lenk", (beruehrung.lenken * halb * 0.7) + "px");
+  }
+  const lenkFinger = new Set();
+  lenkzone.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { lenkzone.setPointerCapture(e.pointerId); } catch { /* egal */ }
+    lenkFinger.add(e.pointerId);
+    lenkzone.classList.add("gedrueckt");
+    lenkenAus(e);
+  });
+  lenkzone.addEventListener("pointermove", (e) => { if (lenkFinger.has(e.pointerId)) lenkenAus(e); });
+  function lenkLos(e) {
+    if (!lenkFinger.delete(e.pointerId) || lenkFinger.size) return;
+    beruehrung.lenken = 0;
+    knauf.style.setProperty("--lenk", "0px");
+    lenkzone.classList.remove("gedrueckt");
+  }
+  for (const art of ["pointerup", "pointercancel", "lostpointercapture"]) lenkzone.addEventListener(art, lenkLos);
+  for (const [id, wert] of [["touch-gas", "gas"], ["touch-bremse", "bremse"]]) {
+    const k = el(id), finger = new Set();
+    k.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      try { k.setPointerCapture(e.pointerId); } catch { /* egal */ }
+      finger.add(e.pointerId);
+      beruehrung[wert] = 1;
+      k.classList.add("gedrueckt");
+    });
+    const los = (e) => {
+      if (!finger.delete(e.pointerId) || finger.size) return;
+      beruehrung[wert] = 0;
+      k.classList.remove("gedrueckt");
+    };
+    for (const art of ["pointerup", "pointercancel", "lostpointercapture"]) k.addEventListener(art, los);
+  }
+  el("touch-pause").addEventListener("click", () => pause(true));
+  el("touch").addEventListener("contextmenu", (e) => e.preventDefault());
+  function beruehrungLoesen() {
+    beruehrung.gas = beruehrung.bremse = beruehrung.lenken = 0;
+    knauf.style.setProperty("--lenk", "0px");
+    for (const k of el("touch").querySelectorAll(".gedrueckt")) k.classList.remove("gedrueckt");
+  }
+  function bedienungZeigen() {
+    el("touch").hidden = !(finger && zustand === "fahrt" && !mitBot);
+  }
+
+  // --- Hochkant mit Finger: ruhiger Hinweis, „Trotzdem spielen“ gilt für diesen Besuch -----------
+  let querTrotzdem = false;
+  function querPruefen() {
+    const zeigen = finger && hochkant() && !querTrotzdem;
+    el("quer").hidden = !zeigen;
+    if (zeigen && zustand === "fahrt") pause(true);
+  }
+  el("quer-trotzdem").addEventListener("click", () => { querTrotzdem = true; querPruefen(); groesse(); });
+
+  // Alle Eingaben zusammen: Gas und Bremse das Stärkste, Lenken die Summe
+  function eingabe() {
+    const t = tastenEingabe();
+    return {
+      gas: Math.max(t.gas, pad.gas, beruehrung.gas),
+      bremse: Math.max(t.bremse, pad.bremse, beruehrung.bremse),
+      lenken: begrenze(t.lenken + pad.lenken + beruehrung.lenken, -1, 1),
+    };
+  }
+
   // --- Anzeigen: laufende Zahlen nur alle 0,5 s, Rundenzeiten genau und dann stehend ----
   const anzeige = { platz: el("platz"), runde: el("runde"), zeit: el("zeit"), letzte: el("letzte"), beste: el("beste"), rekord: el("rekord"), tempo: el("tempo"), balken: el("balken") };
   if (mitBot) el("platte-bot").hidden = false;
-  function zweistellig(n) { return (n < 10 ? "0" : "") + n; }
-  function zeitZehntel(t) {
-    const z = Math.floor(Math.max(0, t) * 10);
-    return Math.floor(z / 600) + ":" + zweistellig(Math.floor(z / 10) % 60) + "." + (z % 10);
-  }
-  function zeitGenau(t) {
-    const h = Math.round(t * 100);
-    return Math.floor(h / 6000) + ":" + zweistellig(Math.floor(h / 100) % 60) + "." + zweistellig(h % 100);
-  }
-  function rueckstandText(t) {
-    const h = Math.round(t * 100);
-    if (h < 6000) return "+" + Math.floor(h / 100) + "," + zweistellig(h % 100) + " s";
-    return "+" + zeitGenau(t);
-  }
   // Zeitpunkt (performance.now) des letzten Zahlenwechsels; gemessen in echter Zeit, nicht im Takt der Bilder,
   // damit der Abstand auch dann nie unter 500 ms fällt, wenn ein Bild später ausgeführt wird als geplant
   let letzterWechsel = -Infinity, gezeigteRunden = -1, ampelGezeigt = -1;
@@ -520,9 +1168,8 @@
     const imRennen = rennen.modus === "rennen";
     el("block-platz").hidden = !imRennen;
     el("zeile-rekord").hidden = rennen.modus !== "zeitfahren";
-    const rekord = rekordLesen();
-    anzeige.rekord.textContent = rekord ? zeitGenau(rekord) : "-:--.--";
-    anzeige.letzte.textContent = anzeige.beste.textContent = "-:--.--";
+    anzeige.rekord.textContent = zeitGenau(rekordLesen());
+    anzeige.letzte.textContent = anzeige.beste.textContent = zeitGenau(null);
     anzeige.letzte.classList.remove("bestzeit");
     anzeige.beste.classList.remove("bestzeit");
     el("ampel").hidden = rennen.modus === "frei";
@@ -574,19 +1221,24 @@
     if (klasse) td.className = klasse;
     return td;
   }
+  // Farbe eines Fahrers in der Tabelle, bei Farbenblind dieselbe wie im Spielbild
+  function fahrerFarbe(z) {
+    const i = R.FAHRER.findIndex((f) => f.nummer === z.nummer);
+    return darstJetzt === "farbenblind" && i >= 0 ? G.CVD_FARBEN[i] : z.farbe;
+  }
   function ergebnisZeigen() {
     zustand = "ergebnis";
     const kopf = el("ergebnis-kopf"), zeilen = el("ergebnis-zeilen"), hinweis = el("ergebnis-hinweis");
     kopf.textContent = zeilen.textContent = "";
     hinweis.className = "";
-    el("ergebnis").classList.toggle("schmal", rennen.modus !== "rennen");
+    el("ergebnis-tafel").classList.toggle("schmal", rennen.modus !== "rennen");
     const titel = document.createElement("tr");
     if (rennen.modus === "rennen") {
-      el("ergebnis-titel").textContent = "Ergebnis, " + rennen.runden + " Runden";
+      el("ergebnis-titel").textContent = tx("ergebnis_rennen", { n: rennen.runden });
       R.zuEndeFahren(rennen, 600);
       const liste = R.ergebnis(rennen);
       const schnellste = Math.min(...liste.map((z) => z.beste ?? Infinity));
-      for (const t of ["Platz", "Nr.", "Fahrer", "Zeit", "Beste Runde"]) titel.appendChild(Object.assign(document.createElement("th"), { textContent: t }));
+      for (const t of ["sp_platz", "sp_nr", "sp_fahrer", "sp_zeit", "sp_beste"]) titel.appendChild(Object.assign(document.createElement("th"), { textContent: tx(t) }));
       titel.children[0].className = titel.children[3].className = titel.children[4].className = "zahl";
       kopf.appendChild(titel);
       for (const z of liste) {
@@ -596,21 +1248,21 @@
         const nr = document.createElement("td");
         const chip = document.createElement("span");
         chip.className = "nummer";
-        chip.style.background = z.farbe;
-        chip.textContent = z.nummer != null ? String(z.nummer) : " ";
+        chip.style.background = fahrerFarbe(z);
+        chip.textContent = z.nummer != null ? String(z.nummer) : " ";
         nr.appendChild(chip);
         tr.appendChild(nr);
-        tr.appendChild(zelle(z.name));
-        tr.appendChild(zelle(z.gesamt == null ? "unterwegs" : z.platz === 1 ? zeitGenau(z.gesamt) : rueckstandText(z.rueckstand), "zahl"));
-        tr.appendChild(zelle(z.beste != null ? zeitGenau(z.beste) : "-:--.--", "zahl" + (z.beste === schnellste ? " beste-runde" : "")));
+        tr.appendChild(zelle(z.istSpieler ? tx("du") : z.name, "fahrer"));
+        tr.appendChild(zelle(z.gesamt == null ? tx("unterwegs") : z.platz === 1 ? zeitGenau(z.gesamt) : "+" + rueckstandText(z.rueckstand), "zahl"));
+        tr.appendChild(zelle(zeitGenau(z.beste), "zahl" + (z.beste === schnellste ? " beste-runde" : "")));
         zeilen.appendChild(tr);
       }
       const ich = liste.find((z) => z.istSpieler);
-      hinweis.textContent = ich.platz === 1 ? "Sieg. Du warst schneller als alle." : "Du bist als " + ich.platz + ". angekommen.";
+      hinweis.textContent = ich.platz === 1 ? tx("sieg") : tx("angekommen", { n: ich.platz, m: liste.length });
     } else {
-      el("ergebnis-titel").textContent = "Zeitfahren, " + rennen.runden + " Runden";
+      el("ergebnis-titel").textContent = tx("ergebnis_zeitfahren", { n: rennen.runden });
       const a = rennen.spieler;
-      for (const t of ["Runde", "Zeit"]) titel.appendChild(Object.assign(document.createElement("th"), { textContent: t }));
+      for (const t of ["sp_runde", "sp_zeit"]) titel.appendChild(Object.assign(document.createElement("th"), { textContent: tx(t) }));
       titel.children[1].className = "zahl";
       kopf.appendChild(titel);
       a.rundenZeiten.forEach((t, i) => {
@@ -622,10 +1274,10 @@
       const rekord = rekordLesen();
       if (a.beste != null && (!rekord || a.beste < rekord)) {
         rekordSchreiben(a.beste);
-        hinweis.textContent = "Neue Bestzeit auf " + strecke.name + ": " + zeitGenau(a.beste);
+        hinweis.textContent = tx("neue_bestzeit", { strecke: strecke.name, zeit: zeitGenau(a.beste) });
         hinweis.className = "neu";
       } else {
-        hinweis.textContent = "Bestzeit auf " + strecke.name + ": " + zeitGenau(rekord) + ", dir fehlten " + rueckstandText(a.beste - rekord).slice(1);
+        hinweis.textContent = tx("bestzeit_fehlte", { strecke: strecke.name, zeit: zeitGenau(rekord), rueckstand: rueckstandText(a.beste - rekord) });
       }
     }
     zeigeTafel("ergebnis");
@@ -635,10 +1287,10 @@
   let gasZuletzt = 0; // für den Klang: Gas des Spielers (beim Bot geschätzt aus dem Tempo)
   function jeTakt() {
     for (let i = 0; i < rennen.autos.length; i++) { vorher[i].z = rennen.autos[i].z; vorher[i].x = rennen.autos[i].x; }
-    const eingabe = mitBot ? null : tastenEingabe();
+    const e = mitBot ? null : eingabe();
     const tempoVorher = rennen.spieler.tempo;
-    R.schritt(rennen, eingabe);
-    gasZuletzt = eingabe ? eingabe.gas : rennen.spieler.tempo > tempoVorher + 1 ? 1 : 0;
+    R.schritt(rennen, e);
+    gasZuletzt = e ? e.gas : rennen.spieler.tempo > tempoVorher + 1 ? 1 : 0;
   }
   // Klang: dein Motor, Reifen, Aufprall und bis zu drei nahe Gegner
   function klang() {
@@ -674,6 +1326,7 @@
   function bild(jetzt) {
     const dt = zuletzt == null ? 0 : (jetzt - zuletzt) / 1000;
     zuletzt = jetzt;
+    padLesen();
     if (zustand === "fahrt") {
       const anteil = P.takt(uhr, dt * raffer, jeTakt);
       if (rennen.phase === "ziel") {
@@ -693,18 +1346,131 @@
     requestAnimationFrame(bild);
   }
 
+  // --- Darstellung wechseln (Auswahlfeld, Gerät, andere Werkzeuge) --------------------------------
+  let darstSeit = -1e9;
+  let darstTimer = 0;
+  function darstZeigen(modus) {
+    wurzel.classList.add("ohne-uebergang");
+    wurzel.removeAttribute("data-vision");
+    wurzel.removeAttribute("data-hc");
+    if (modus === "hc-dunkel" || modus === "hc-hell") {
+      wurzel.setAttribute("data-vision", "contrast");
+      wurzel.setAttribute("data-hc", modus === "hc-hell" ? "light" : "dark");
+    } else if (modus === "farbenblind") wurzel.setAttribute("data-vision", "cvd");
+    else if (modus === "umkehr") wurzel.setAttribute("data-vision", "invert");
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = THEMA_FARBE[modus];
+    darstJetzt = modus;
+    for (const g of gebaut.values()) g.grafik.setzeModus(modus);
+    neuZeichnen = true;             // Seite und Spielbild wechseln im selben Bild
+    requestAnimationFrame(() => requestAnimationFrame(() => wurzel.classList.remove("ohne-uebergang")));
+  }
+  function darstFolgen() {
+    clearTimeout(darstTimer);
+    darstTimer = 0;
+    const modus = darstModus(gespeicherteDarstellung());
+    if (modus === darstJetzt) return;
+    const jetzt = performance.now() / 1000;
+    const warten = darstSeit + DARST_HALTEN - jetzt;
+    if (warten > 0) { darstTimer = setTimeout(darstFolgen, Math.ceil(warten * 1000) + 5); return; }
+    darstSeit = jetzt;
+    darstZeigen(modus);
+  }
+  const darstFeld = el("darstellung");
+  for (const [wert, schluessel] of DARST_OPTIONEN) {
+    const o = document.createElement("option");
+    o.value = wert;
+    o.dataset.i = schluessel;
+    darstFeld.appendChild(o);
+  }
+  darstFeld.value = darstOption(gespeicherteDarstellung());
+  darstFeld.addEventListener("change", () => {
+    const w = darstFeld.value;
+    const alt = gespeicherteDarstellung();
+    let neu = w;
+    if (w === "normal") neu = darstOption(alt) === "normal" ? alt : "system";
+    else if (w === "cvd") neu = darstOption(alt) === "cvd" ? alt : (medium("(prefers-color-scheme: dark)") ? "cvd-dark" : "cvd-light");
+    darstOhneSpeicher = neu;
+    schreiben(SCHLUESSEL_DARSTELLUNG, neu);
+    darstFolgen();
+  });
+  for (const q of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(forced-colors: active)"]) {
+    if (window.matchMedia) matchMedia(q).addEventListener("change", darstFolgen);
+  }
+  function darstNeuLesen() { darstFeld.value = darstOption(gespeicherteDarstellung()); darstFolgen(); }
+  window.addEventListener("storage", (e) => { if (e.key === SCHLUESSEL_DARSTELLUNG || e.key === null) darstNeuLesen(); });
+  window.addEventListener("pageshow", (e) => { if (e.persisted) darstNeuLesen(); });
+
+  // --- Sprache wechseln: sofort und still, ohne Neuladen -----------------------------------------
+  const auswahl = el("sprache");
+  for (const s of SP.SPRACHEN) {
+    const o = document.createElement("option");
+    o.value = s.code;
+    o.lang = s.code;
+    o.textContent = s.name;
+    auswahl.appendChild(o);
+  }
+  function setzeSprache(code, merken) {
+    sprache = SP.TEXTE[code] ? code : "en";
+    if (merken) schreiben(SP.SCHLUESSEL_SPEICHER, sprache);
+    window.sbDokumentSprache(sprache);
+    for (const e of document.querySelectorAll("[data-i]")) e.textContent = tx(e.dataset.i);
+    for (const e of document.querySelectorAll("[data-i-aria]")) e.setAttribute("aria-label", tx(e.dataset.iAria));
+    auswahl.value = sprache;
+    tonZeigen();
+    menueTexte();
+    if (rennen) {
+      anzeige.rekord.textContent = zeitGenau(rekordLesen());
+      gezeigteRunden = -1;
+      letzterWechsel = -Infinity;
+      if (!rennen.spieler.rundenZeiten.length) anzeige.letzte.textContent = anzeige.beste.textContent = zeitGenau(null);
+    }
+  }
+  auswahl.addEventListener("change", () => setzeSprache(auswahl.value, true));
+
+  // --- Installieren (Muster Pocketsum 1.1) -------------------------------------------------
+  // Der Knopf erscheint erst, wenn der Browser die Installation anbietet (das Ereignis hebt der Kopf der Seite auf),
+  // und öffnet dann dessen Dialog. In der installierten App bleibt er weg.
+  function alsApp() {
+    return ["fullscreen", "standalone", "minimal-ui"].some((m) => matchMedia("(display-mode: " + m + ")").matches) || navigator.standalone === true;
+  }
+  const knopfInstall = el("installieren");
+  function zeigeInstall() { knopfInstall.hidden = !(window.sbInstall && !alsApp()); }
+  window.sbInstallZeigen = zeigeInstall;
+  knopfInstall.addEventListener("click", () => {
+    const e = window.sbInstall;
+    window.sbInstall = null;
+    zeigeInstall();
+    if (!e) return;
+    try { const p = e.prompt(); if (p && p.catch) p.catch(() => {}); } catch { /* egal */ }
+  });
+  window.addEventListener("appinstalled", () => {
+    window.sbInstall = null;
+    zeigeInstall();
+    wurzel.classList.remove("install-platz");
+  });
+
+  setzeSprache(sprache, false);
+  zeigeInstall();
   groesse();
   if (startModus) { wahl.modus = startModus; starten(startModus); } else menueZeigen();
+  querPruefen();
   requestAnimationFrame(bild);
+
+  // Offline und installierbar: Service Worker (sw.js). Unter file:// (Doppelklick) meldet sich keiner an, das Spiel
+  // läuft dort trotzdem vollständig.
+  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./sw.js").catch(() => {});
 
   // Für Werkzeuge und Tests (werkzeuge/foto.mjs, tests/spiel.mjs)
   window.streckenblitz = {
-    mitBot, uhr, raffer, ton,
+    mitBot, uhr, raffer, ton, pad, beruehrung, setzeSprache,
     get strecke() { return strecke; },
     get grafik() { return grafik; },
     get rennen() { return rennen; },
     get auto() { return rennen.spieler; },
     get zustand() { return zustand; },
+    get sprache() { return sprache; },
+    get darstellung() { return darstJetzt; },
   };
 })();
 </script>

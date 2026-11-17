@@ -555,6 +555,34 @@ abschnitt("Ton: Automatik und Drehzahl");
 }
 
 // --- Texte und Dateien --------------------------------------------------------------
+abschnitt("Sprachen");
+{
+  const SP = require(path.join(wurzel, "sprachen.js"));
+  const de = SP.TEXTE.de, schluessel = Object.keys(de).sort();
+  const platzhalter = (t) => (t.match(/\{\w+\}/g) || []).sort().join(" ");
+  pruefe(SP.SPRACHEN.length === 14 && SP.SPRACHEN.every((s) => SP.TEXTE[s.code]), "14 Sprachen, jede mit Texten");
+  pruefe(SP.SPRACHEN.map((s) => s.code).join(" ") === "de en es fr it nl pl pt tr ru hi zh ja ko", "dieselben 14 Sprachen wie Kugelblitz, gleiche Reihenfolge");
+  for (const s of SP.SPRACHEN) {
+    const t = SP.TEXTE[s.code], k = Object.keys(t).sort();
+    pruefe(k.join() === schluessel.join(), s.code + ": dieselben " + schluessel.length + " Schlüssel wie Deutsch" + (k.join() !== schluessel.join() ? " (fehlt: " + schluessel.filter((x) => !t[x]).join(",") + ")" : ""));
+    const anders = schluessel.filter((x) => t[x] !== undefined && platzhalter(t[x]) !== platzhalter(de[x]));
+    pruefe(!anders.length, s.code + ": dieselben Platzhalter" + (anders.length ? " (" + anders.join(",") + ")" : ""));
+    pruefe(k.every((x) => typeof t[x] === "string" && t[x].trim().length > 0), s.code + ": kein Text leer");
+    pruefe(/^\d:\d\d[.,]\d\d$/.test(SP.zeit(s.code, 83.456, 2)) && SP.zeit(s.code, 83.456, 2).endsWith(SP.komma(s.code) + "46"), s.code + ": Rundenzeit mit Dezimalzeichen der Sprache (" + SP.zeit(s.code, 83.456, 2) + ")");
+  }
+  // Englisch übersetzt wirklich (kein deutscher Text stehen geblieben, außer Namen und Abkürzungen)
+  const gleich = schluessel.filter((x) => SP.TEXTE.en[x] === de[x] && !/^(kmh|strecke_text|sekunden|st_touch|st_pad|rekord|pause|darst_normal|touch_gas)$/.test(x));
+  pruefe(!gleich.length, "Englisch weicht überall vom Deutschen ab (gleich: " + gleich.join(",") + ")");
+  // Jeder Schlüssel, den index.html über data-i nennt, steht in den Texten
+  const html = fs.readFileSync(path.join(wurzel, "index.html"), "utf8");
+  const genannt = [...html.matchAll(/data-i(?:-aria)?="(\w+)"/g)].map((m) => m[1]);
+  const fehlend = genannt.filter((x) => de[x] === undefined);
+  pruefe(genannt.length > 30 && !fehlend.length, "alle " + genannt.length + " Schlüssel aus index.html vorhanden" + (fehlend.length ? " (fehlt: " + fehlend.join(",") + ")" : ""));
+  for (const id of S.REIHE) pruefe(de["kurz_" + id] !== undefined, "Beschreibung der Strecke " + id + " übersetzt");
+  pruefe(SP.erkenne(null, ["fr-CA"]) === "fr" && SP.erkenne(null, ["sv"]) === "en" && SP.erkenne("ja", ["de"]) === "ja", "Erkennung: fr-CA wird fr, Unbekanntes Englisch, gespeicherte Wahl zuerst");
+  pruefe(SP.text("de", "angekommen", { n: 3, m: 8 }) === "Du bist auf Platz 3 von 8 angekommen.", "Platzhalter werden gefüllt");
+}
+
 abschnitt("Texte und Dateien");
 function dateien(ordner) {
   const liste = [];

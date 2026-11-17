@@ -134,6 +134,13 @@
   ];
   const NUMMER_FARBE = "#cbbd98", NUMMER_GRUND = "#121117";
 
+  // Sehhilfe Farbenblind: Gegnerfarben nach Okabe und Ito, je etwa 12 % dunkler (Nacht), in der Reihenfolge der Fahrer
+  // in rennen.js (Grün, Blau, Weinrot, Purpur, Gold, Grau, Rostrot). Die Startnummern bleiben.
+  const CVD_FARBEN = Object.freeze(["#008b65", "#00649d", "#bb5300", "#b46b93", "#d3c93a", "#4c9ecd", "#ca8c00"]);
+  // Sehhilfe Hoher Kontrast: helle Randlinie und Kontur um jedes Auto (bleibt auch bei Hoher Kontrast hell so,
+  // das Spielbild bleibt dunkel)
+  const HC_LINIE = "#ece4cc", HC_KONTUR = "#ece4cc";
+
   /*
    * Zeichnet ein Auto in einen Canvas-Kontext.
    * neigung: -1 links, 0 gerade, 1 rechts; farben: Farbsatz; f: Größe (1 = 64 × 34 Pixel);
@@ -543,11 +550,14 @@
 
     // --- Straße: Farben je Segment und Dunststufe vorberechnet (64 Stufen) ----------------------
     const STUFEN = 64, BAENDER = 8;
-    function stufen(hex) {
-      const c = rgb(hex);
-      return Array.from({ length: STUFEN }, (_, i) => pack(mische(c, dunst, i / (STUFEN - 1))));
+    // höchstens: so weit geht der Dunst (1 = ganz in der Ferne verschwunden)
+    function stufen(hex, hoechstens) {
+      const c = typeof hex === "string" ? rgb(hex) : hex;
+      const h = hoechstens == null ? 1 : hoechstens;
+      return Array.from({ length: STUFEN }, (_, i) => pack(mische(c, dunst, (h * i) / (STUFEN - 1))));
     }
-    const rand = F.randstein.map(stufen), linie = stufen(F.linie), ziel = F.ziel.map(stufen);
+    const ziel = F.ziel.map(stufen);
+    let rand = null, linie = null, hoherKontrast = false;
     // Gras in 16 Helligkeiten: ruhige Flecken (höchstens ±3 %) und zur Seite hin dunkler
     const GRAS_HELL = 16;
     const gras = F.gras.map((hex) => Array.from({ length: STUFEN }, (_, i) =>
@@ -562,14 +572,23 @@
       Array.from({ length: BAENDER }, (_, b) => pack(mische(hell(rgb(hex), 1.07 - 0.16 * Math.pow(b / (BAENDER - 1), 2)), dunst, i / (STUFEN - 1))))));
     const nebelBei = (n) => Math.min(STUFEN - 1, Math.round((1 - Math.exp(-(n / SICHT) * (n / SICHT) * NEBEL)) * (STUFEN - 1)));
 
-    const sprites = [-1, 0, 1].map((n) => {
-      const c = neueLeinwand(AUTO_B, AUTO_H);
-      autoZeichnen(c.getContext("2d"), n);
+    // Hoher Kontrast: ein Pixel helle Kontur rund um das Bild eines Autos (das Bild wird 2 Pixel größer)
+    function mitKontur(quelle) {
+      if (!hoherKontrast) return quelle;
+      const riss = neueLeinwand(quelle.width, quelle.height), rg = riss.getContext("2d");
+      rg.drawImage(quelle, 0, 0);
+      rg.globalCompositeOperation = "source-in";
+      rg.fillStyle = HC_KONTUR;
+      rg.fillRect(0, 0, quelle.width, quelle.height);
+      const c = neueLeinwand(quelle.width + 2, quelle.height + 2), g = c.getContext("2d");
+      for (const [dx, dy] of [[0, 1], [2, 1], [1, 0], [1, 2]]) g.drawImage(riss, dx, dy);
+      g.drawImage(quelle, 1, 1);
+      c.f = quelle.f;
       return c;
-    });
+    }
 
     // Gegner-Bilder entstehen erst, wenn eine Größe gebraucht wird
-    const gegnerFarben = (fahrer || []).map((g) => teamFarben(g.farbe));
+    let sprites = null, gegnerFarben = null;
     const gegnerSpeicher = new Map();
     function gegnerBild(nr, neigung, stufe) {
       const schluessel = nr * 1000 + stufe * 4 + neigung + 1;
@@ -579,10 +598,41 @@
         c = neueLeinwand(Math.max(1, Math.round(AUTO_B * f)), Math.max(1, Math.round(AUTO_H * f)));
         autoZeichnen(c.getContext("2d"), neigung, gegnerFarben[nr], f, fahrer[nr].nummer);
         c.f = f;
+        c = mitKontur(c);
         gegnerSpeicher.set(schluessel, c);
       }
       return c;
     }
+
+    /*
+     * Sehhilfe für das Spielbild (dieselben Namen wie die Seite): normal, hc-dunkel, hc-hell, farbenblind, umkehr.
+     * Hoher Kontrast: Randsteine einfarbig (kein Wechsel, also auch kein Flimmern), helle und breitere Randlinie,
+     * die im Dunst höchstens zur Hälfte verschwindet, helle Kontur um alle Autos. Farbenblind: Gegnerfarben nach
+     * Okabe und Ito. Umkehr dreht die Seite per CSS, hier ändert sich nichts.
+     */
+    let modus = "";
+    function setzeModus(neu) {
+      if (neu === modus) return;
+      modus = neu;
+      hoherKontrast = modus === "hc-dunkel" || modus === "hc-hell";
+      if (hoherKontrast) {
+        const mitte = hell(mische(rgb(F.randstein[0]), rgb(F.randstein[1]), 0.5), 0.85);
+        const r = stufen(mitte);
+        rand = [r, r];
+        linie = stufen(HC_LINIE, 0.5);
+      } else {
+        rand = F.randstein.map((h) => stufen(h));
+        linie = stufen(F.linie);
+      }
+      sprites = [-1, 0, 1].map((n) => {
+        const c = neueLeinwand(AUTO_B, AUTO_H);
+        autoZeichnen(c.getContext("2d"), n);
+        return mitKontur(c);
+      });
+      gegnerFarben = (modus === "farbenblind" ? CVD_FARBEN : (fahrer || []).map((g) => g.farbe)).map(teamFarben);
+      gegnerSpeicher.clear();
+    }
+    setzeModus("normal");
 
     // --- Weiche Lichter und Schatten (glatte Verläufe, das einzig „Neue“ zwischen den Pixeln) -------
     function scheibe(groesse, farbe, stopps) {
@@ -704,8 +754,9 @@
         }
       }
       // Randlinien innen an den Randsteinen (mindestens ein Pixel, solange die Straße breit genug ist)
-      if (w > 12) {
-        const lb = Math.max(1, Math.round(w * 0.03));
+      // Hoher Kontrast: schon ab kleinerer Breite und doppelt so breit (nah mindestens 2 Pixel)
+      if (w > (hoherKontrast ? 5 : 12)) {
+        const lb = hoherKontrast ? (w > 20 ? Math.max(2, Math.round(w * 0.06)) : 1) : Math.max(1, Math.round(w * 0.03));
         const lp = linie[stufe];
         if (links >= 0) for (let x = a1; x < Math.min(B, a1 + lb); x++) pix[o + x] = lp;
         if (rechts <= B) for (let x = Math.max(0, b0 - lb); x < b0; x++) pix[o + x] = lp;
@@ -926,11 +977,12 @@
       const ax = Math.round(B / 2 - AUTO_B / 2), ay = autoY - ruettel;
       bodenSchatten(ax + AUTO_B / 2 - 3, ay + AUTO_H - 1, AUTO_B + 16, 13);
       const bildNr = ansicht.lenk < -0.3 ? 0 : ansicht.lenk > 0.3 ? 2 : 1;
-      ctx.drawImage(sprites[bildNr], ax, ay);
+      const rahmen = (sprites[bildNr].width - AUTO_B) / 2; // Kontur im Hohen Kontrast
+      ctx.drawImage(sprites[bildNr], ax - rahmen, ay - rahmen);
     }
 
-    return { bild, zeichne, sprites, gegnerBild, artBild };
+    return { bild, zeichne, get sprites() { return sprites; }, gegnerBild, artBild, setzeModus, get modus() { return modus; } };
   }
 
-  return { B, H, HORIZONT, KAMERA_HOEHE, TIEFE, ABSTAND, SICHT, erzeuge, autoZeichnen, teamFarben, AUTO_B, AUTO_H, rgb, mische };
+  return { B, H, HORIZONT, KAMERA_HOEHE, TIEFE, ABSTAND, SICHT, CVD_FARBEN, erzeuge, autoZeichnen, teamFarben, AUTO_B, AUTO_H, rgb, mische };
 });
