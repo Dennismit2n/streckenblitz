@@ -146,6 +146,14 @@
   .knoepfe { display: flex; justify-content: center; gap: calc(var(--gp) * 3); margin-top: calc(var(--gp) * 6); }
   .knoepfe .knopf.haupt { margin-top: 0; }
   #pause .knoepfe { flex-direction: column; align-items: center; }
+  /* Streckenwahl: drei Karten mit einem kleinen Himmelsstreifen der Strecke */
+  .strecken { gap: calc(var(--gp) * 2.6); }
+  .knopf.karte { min-width: calc(var(--gp) * 44); padding: calc(var(--gp) * 2.6) calc(var(--gp) * 3.4) calc(var(--gp) * 3.2); text-align: left; }
+  .karte .streifen { display: block; height: calc(var(--gp) * 9); margin-bottom: calc(var(--gp) * 2.2); border-radius: calc(var(--gp) * 0.6); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35); }
+  .karte b { display: block; font: 600 calc(var(--gp) * 4.6)/1.1 var(--font-schild); }
+  .karte small { display: block; margin-top: calc(var(--gp) * 1.2); font: 400 calc(var(--gp) * 3.2)/1.2 var(--font-schild); color: #7c7da2; font-variant-numeric: tabular-nums lining-nums; }
+  .karte[aria-pressed="true"] small { color: color-mix(in srgb, var(--weissgold) 60%, var(--text-leise)); }
+  #ton { min-width: calc(var(--gp) * 30); }
   .rekord { margin: calc(var(--gp) * 5) 0 0; font: 400 calc(var(--gp) * 4)/1.2 var(--font-schild); color: var(--text-leise); }
   .rekord b { font-weight: 600; color: color-mix(in srgb, var(--weissgold) 70%, var(--text-leise)); font-variant-numeric: tabular-nums lining-nums; }
   .tasten { margin: calc(var(--gp) * 5) 0 0; font: 400 calc(var(--gp) * 3.4)/1.3 var(--font-text); color: #6E6F92; }
@@ -205,7 +213,9 @@
   <div id="schleier" hidden></div>
   <section class="tafel" id="menue" hidden aria-labelledby="menue-titel">
     <h1 id="menue-titel">Streckenblitz</h1>
-    <p class="unterzeile">Möwenkap, Küste in der Abenddämmerung</p>
+    <p class="unterzeile" id="menue-unterzeile">Möwenkap, Küste in der Abenddämmerung</p>
+    <span class="wahl-titel">Strecke</span>
+    <div class="wahl strecken" id="streckenwahl"></div>
     <span class="wahl-titel">Modus</span>
     <div class="wahl">
       <button class="knopf" type="button" data-modus="rennen" aria-pressed="true">Rennen</button>
@@ -216,9 +226,11 @@
       <button class="knopf" type="button" data-runden="3" aria-pressed="true">3 Runden</button>
       <button class="knopf" type="button" data-runden="5" aria-pressed="false">5 Runden</button>
     </div>
-    <p class="rekord">Rekord Möwenkap: <b id="menue-rekord">noch keiner</b></p>
-    <button class="knopf haupt" type="button" id="los">Los</button>
-    <p class="tasten">Enter startet · R Rennen · Z Zeitfahren · 3 oder 5 Runden</p>
+    <div class="knoepfe">
+      <button class="knopf haupt" type="button" id="los">Los</button>
+      <button class="knopf" type="button" id="ton" aria-pressed="false">Ton aus</button>
+    </div>
+    <p class="tasten">Enter startet · ← → Strecke · R Rennen · Z Zeitfahren · 3 oder 5 Runden · T Ton</p>
   </section>
   <section class="tafel" id="pause" hidden aria-labelledby="pause-titel">
     <h2 id="pause-titel">Pause</h2>
@@ -247,12 +259,13 @@
 <script src="strecke.js"></script>
 <script src="physik.js"></script>
 <script src="rennen.js"></script>
+<script src="deko.js"></script>
 <script src="grafik.js"></script>
+<script src="ton.js"></script>
 <script>
 (function () {
   "use strict";
-  const S = window.Strecke, P = window.Physik, R = window.Rennen, G = window.Grafik;
-  const STRECKE = "moewenkap";
+  const S = window.Strecke, P = window.Physik, R = window.Rennen, G = window.Grafik, T = window.Ton;
   const FREI_RUNDEN = 3; // freie Fahrt (?start): Runde x/3 als Trainingsserie wie in M1
 
   /*
@@ -263,6 +276,7 @@
    *   ?start=<segment>               freie Fahrt ab dieser Stelle (ohne modus: frei)
    *   ?zeitraffer=<1..20>            die Zeit läuft so viel schneller
    *   ?samen=<zahl>                  fester Zufall (Ampelpause, Fahrfehler)
+   *   ?strecke=moewenkap|mondsenke|tannenjoch
    */
   const parameter = new URLSearchParams(location.search);
   const mitBot = parameter.get("bot") === "1";
@@ -270,29 +284,62 @@
   const startModus = ["rennen", "zeitfahren", "frei"].includes(parameter.get("modus")) ? parameter.get("modus")
     : parameter.has("start") ? "frei" : mitBot ? "rennen" : null;
 
-  const strecke = S.baue(S.PLAENE[STRECKE]);
   const L = S.KONST.SEGMENT_LAENGE;
-  const startSegment = Math.max(0, Math.min(strecke.anzahl - 1, Math.floor(Number(parameter.get("start")) || 0)));
   const uhr = { konto: 0 };
 
-  const grafik = G.erzeuge(strecke, (b, h) => {
+  // --- Kleiner Speicher im Browser (darf fehlen oder gesperrt sein) ---------------------
+  function lesen(schluessel) { try { return localStorage.getItem(schluessel); } catch { return null; } }
+  function schreiben(schluessel, wert) { try { localStorage.setItem(schluessel, wert); } catch { /* ohne Speicher eben nur für diese Sitzung */ } }
+
+  // --- Strecken: gebaut und gezeichnet erst, wenn sie gewählt werden -------------------
+  const leinwandNeu = (b, h) => {
     const c = document.createElement("canvas");
     c.width = b;
     c.height = h;
     return c;
-  }, R.FAHRER);
+  };
+  const gebaut = new Map();
+  let strecke = null, grafik = null;
+  function streckeSetzen(id) {
+    if (!S.PLAENE[id]) id = S.REIHE[0];
+    if (!gebaut.has(id)) {
+      const s = S.baue(S.PLAENE[id]);
+      gebaut.set(id, { strecke: s, grafik: G.erzeuge(s, leinwandNeu, R.FAHRER) });
+    }
+    ({ strecke, grafik } = gebaut.get(id));
+  }
+  streckeSetzen(parameter.get("strecke") || lesen("streckenblitz.strecke") || S.REIHE[0]);
+  const startSegment = () => Math.max(0, Math.min(strecke.anzahl - 1, Math.floor(Number(parameter.get("start")) || 0)));
 
-  // --- Bestzeit je Strecke im Browser (darf fehlen oder gesperrt sein) -----------------
-  const REKORD_SCHLUESSEL = "streckenblitz.rekord." + STRECKE;
-  function rekordLesen() {
-    try {
-      const w = Number(localStorage.getItem(REKORD_SCHLUESSEL));
-      return w > 0 && isFinite(w) ? w : null;
-    } catch { return null; }
+  // Bestzeit je Strecke (nur Zeitfahren)
+  const rekordSchluessel = (id) => "streckenblitz.rekord." + (id || strecke.id);
+  function rekordLesen(id) {
+    const w = Number(lesen(rekordSchluessel(id)));
+    return w > 0 && isFinite(w) ? w : null;
   }
-  function rekordSchreiben(t) {
-    try { localStorage.setItem(REKORD_SCHLUESSEL, String(t)); } catch { /* ohne Speicher eben nur für diese Sitzung */ }
+  function rekordSchreiben(t) { schreiben(rekordSchluessel(), String(t)); }
+
+  // --- Ton: beim Start stumm; war er an, geht er mit der ersten Taste oder dem ersten Klick wieder an ----
+  const ton = T.erzeuge();
+  let tonGewuenscht = lesen("streckenblitz.ton") === "an";
+  function tonZeigen() {
+    const k = document.getElementById("ton");
+    k.setAttribute("aria-pressed", String(tonGewuenscht));
+    k.textContent = tonGewuenscht ? "Ton an" : "Ton aus";
   }
+  function tonUmschalten() {
+    tonGewuenscht = !tonGewuenscht;
+    ton.an(tonGewuenscht);
+    schreiben("streckenblitz.ton", tonGewuenscht ? "an" : "aus");
+    tonZeigen();
+  }
+  function ersteGeste() {
+    window.removeEventListener("pointerdown", ersteGeste, true);
+    window.removeEventListener("keydown", ersteGeste, true);
+    if (tonGewuenscht && !ton.istAn) ton.an(true);
+  }
+  window.addEventListener("pointerdown", ersteGeste, true);
+  window.addEventListener("keydown", ersteGeste, true);
 
   // --- Bildgröße: ganzzahlig in Gerätepixeln, Rest bleibt dunkel ------------------
   const buehne = document.getElementById("buehne");
@@ -325,7 +372,7 @@
 
   function neuesRennen(modus) {
     const samen = parameter.has("samen") ? Number(parameter.get("samen")) : Math.floor(Math.random() * 1e9);
-    rennen = R.neu(strecke, { modus, runden: wahl.runden, samen, startZ: startSegment * L });
+    rennen = R.neu(strecke, { modus, runden: wahl.runden, samen, startZ: startSegment() * L });
     vorher = rennen.autos.map((a) => ({ z: a.z, x: a.x }));
     uhr.konto = 0;
     hudZuruecksetzen();
@@ -343,13 +390,44 @@
   function menueZeigen() {
     zustand = "menue";
     neuesRennen(wahl.modus === "zeitfahren" ? "zeitfahren" : "rennen"); // Startaufstellung als Hintergrund
-    const rekord = rekordLesen();
-    el("menue-rekord").textContent = rekord ? zeitGenau(rekord) : "noch keiner";
+    el("menue-unterzeile").textContent = strecke.name + ", " + strecke.kurz;
+    for (const k of document.querySelectorAll("[data-strecke]")) {
+      const rekord = rekordLesen(k.dataset.strecke);
+      k.querySelector(".karten-rekord").textContent = rekord ? zeitGenau(rekord) : "noch keiner";
+    }
     wahlZeigen();
     zeigeTafel("menue");
     neuZeichnen = true;
   }
+  // Karten der Streckenwahl aus den Bauplänen: Name, ein Streifen aus Himmel und Boden, Rekord
+  for (const id of S.REIHE) {
+    const plan = S.PLAENE[id], f = plan.farben;
+    const k = document.createElement("button");
+    k.className = "knopf karte";
+    k.type = "button";
+    k.dataset.strecke = id;
+    k.title = plan.kurz;
+    const streifen = document.createElement("i");
+    streifen.className = "streifen";
+    streifen.style.background = "linear-gradient(180deg, " + f.himmel.map(([t, c]) => c + " " + Math.round(t * 62) + "%").join(", ") +
+      ", " + f.dunst + " 66%, " + f.gras[0] + " 70%, " + f.gras[0] + " 100%)";
+    const name = document.createElement("b");
+    name.textContent = plan.name;
+    const rek = document.createElement("small");
+    rek.append("Rekord ", Object.assign(document.createElement("span"), { className: "karten-rekord" }));
+    k.append(streifen, name, rek);
+    k.addEventListener("click", () => streckeWaehlen(id));
+    el("streckenwahl").appendChild(k);
+  }
+  function streckeWaehlen(id) {
+    streckeSetzen(id);
+    schreiben("streckenblitz.strecke", strecke.id);
+    menueZeigen();
+    const k = document.querySelector('[data-strecke="' + strecke.id + '"]');
+    if (k) k.focus({ preventScroll: true });
+  }
   function wahlZeigen() {
+    for (const k of document.querySelectorAll("[data-strecke]")) k.setAttribute("aria-pressed", String(k.dataset.strecke === strecke.id));
     for (const k of document.querySelectorAll("[data-modus]")) k.setAttribute("aria-pressed", String(k.dataset.modus === wahl.modus));
     for (const k of document.querySelectorAll("[data-runden]")) k.setAttribute("aria-pressed", String(Number(k.dataset.runden) === wahl.runden));
   }
@@ -366,6 +444,8 @@
   for (const k of document.querySelectorAll("[data-modus]")) k.addEventListener("click", () => { wahl.modus = k.dataset.modus; menueZeigen(); });
   for (const k of document.querySelectorAll("[data-runden]")) k.addEventListener("click", () => { wahl.runden = Number(k.dataset.runden); wahlZeigen(); });
   el("los").addEventListener("click", () => starten());
+  el("ton").addEventListener("click", tonUmschalten);
+  tonZeigen();
   el("weiter").addEventListener("click", () => pause(false));
   el("neu-starten").addEventListener("click", () => starten(rennen.modus));
   el("zum-menue").addEventListener("click", menueZeigen);
@@ -390,6 +470,12 @@
       else if (e.code === "Digit3" || e.code === "Numpad3") { wahl.runden = 3; wahlZeigen(); }
       else if (e.code === "Digit5" || e.code === "Numpad5") { wahl.runden = 5; wahlZeigen(); }
       else if ((e.code === "Enter" || e.code === "NumpadEnter") && !aufKnopf) starten();
+      else if (e.code === "KeyT") tonUmschalten();
+      else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+        const i = S.REIHE.indexOf(strecke.id) + (e.code === "ArrowRight" ? 1 : -1);
+        streckeWaehlen(S.REIHE[(i + S.REIHE.length) % S.REIHE.length]);
+        e.preventDefault();
+      }
       return;
     }
     if (zustand !== "fahrt" || !TASTEN.has(e.code)) return;
@@ -536,19 +622,36 @@
       const rekord = rekordLesen();
       if (a.beste != null && (!rekord || a.beste < rekord)) {
         rekordSchreiben(a.beste);
-        hinweis.textContent = "Neue Bestzeit auf Möwenkap: " + zeitGenau(a.beste);
+        hinweis.textContent = "Neue Bestzeit auf " + strecke.name + ": " + zeitGenau(a.beste);
         hinweis.className = "neu";
       } else {
-        hinweis.textContent = "Bestzeit auf Möwenkap: " + zeitGenau(rekord) + ", dir fehlten " + rueckstandText(a.beste - rekord).slice(1);
+        hinweis.textContent = "Bestzeit auf " + strecke.name + ": " + zeitGenau(rekord) + ", dir fehlten " + rueckstandText(a.beste - rekord).slice(1);
       }
     }
     zeigeTafel("ergebnis");
   }
 
   // --- Spielschleife: feste Physik-Takte, Zeichnen mit Zwischenstand ------------------
+  let gasZuletzt = 0; // für den Klang: Gas des Spielers (beim Bot geschätzt aus dem Tempo)
   function jeTakt() {
     for (let i = 0; i < rennen.autos.length; i++) { vorher[i].z = rennen.autos[i].z; vorher[i].x = rennen.autos[i].x; }
-    R.schritt(rennen, mitBot ? null : tastenEingabe());
+    const eingabe = mitBot ? null : tastenEingabe();
+    const tempoVorher = rennen.spieler.tempo;
+    R.schritt(rennen, eingabe);
+    gasZuletzt = eingabe ? eingabe.gas : rennen.spieler.tempo > tempoVorher + 1 ? 1 : 0;
+  }
+  // Klang: dein Motor, Reifen, Aufprall und bis zu drei nahe Gegner
+  function klang() {
+    if (!ton.istAn) return;
+    const a = rennen.spieler;
+    const aktiv = zustand === "fahrt" && rennen.phase !== "ziel";
+    const gegner = [];
+    for (const g of rennen.autos) {
+      if (g === a) continue;
+      const dz = R.abstand(g, a, strecke.laenge);
+      if (Math.abs(dz) < T.KONST.GEGNER_WEIT) gegner.push({ abstand: dz, quer: g.x - a.x, anteil: g.tempo / P.KONST.HOECHST });
+    }
+    ton.aktualisiere({ aktiv, anteil: a.tempo / P.KONST.HOECHST, gas: gasZuletzt, rutschen: a.rutschen, stoesse: a.stoesse, gegner });
   }
   function zwischen(i, anteil) {
     const a = rennen.autos[i], v = vorher[i];
@@ -586,6 +689,7 @@
       zeichnen(1);
       neuZeichnen = false;
     }
+    klang();
     requestAnimationFrame(bild);
   }
 
@@ -595,7 +699,9 @@
 
   // Für Werkzeuge und Tests (werkzeuge/foto.mjs, tests/spiel.mjs)
   window.streckenblitz = {
-    strecke, grafik, mitBot, uhr, raffer,
+    mitBot, uhr, raffer, ton,
+    get strecke() { return strecke; },
+    get grafik() { return grafik; },
     get rennen() { return rennen; },
     get auto() { return rennen.spieler; },
     get zustand() { return zustand; },

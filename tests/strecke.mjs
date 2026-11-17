@@ -34,6 +34,8 @@ function pruefe(bedingung, text) {
 const L = S.KONST.SEGMENT_LAENGE;
 const strecke = S.baue(S.PLAENE.moewenkap);
 const seg = strecke.segmente;
+// Für reine Gras-Prüfungen: dieselbe Strecke ohne Deko-Hindernisse
+const ohneDeko = Object.assign({}, strecke, { hindernisse: null });
 
 // --- Strecke --------------------------------------------------------------------
 abschnitt("Strecke geschlossen");
@@ -155,13 +157,13 @@ abschnitt("Physik Fahrgefühl");
   const a = P.neuesAuto(1000, 2);
   a.tempo = P.KONST.HOECHST;
   let tempo1s = 0;
-  for (let i = 0; i < 180; i++) { P.schritt(a, { gas: 1 }, strecke); if (i === 59) tempo1s = a.tempo; }
+  for (let i = 0; i < 180; i++) { P.schritt(a, { gas: 1 }, ohneDeko); if (i === 59) tempo1s = a.tempo; }
   const deckel = P.KONST.GRAS_HOECHST * P.KONST.HOECHST;
   pruefe(a.untergrund === "gras", "x = 2 liegt im Gras");
   pruefe(tempo1s < 0.5 * P.KONST.HOECHST, "Gras bremst stark: nach 1 s unter halbem Höchsttempo (" + Math.round(P.kmh(tempo1s)) + " km/h)");
   pruefe(a.tempo <= deckel + 1e-6, "Gras begrenzt das Höchsttempo (" + Math.round(P.kmh(a.tempo)) + " km/h)");
   const b = P.neuesAuto(1000, 2);
-  for (let i = 0; i < 600; i++) P.schritt(b, { gas: 1 }, strecke);
+  for (let i = 0; i < 600; i++) P.schritt(b, { gas: 1 }, ohneDeko);
   pruefe(b.tempo <= deckel + 1e-6 && b.tempo > deckel * 0.9, "aus dem Stand im Gras nicht über das Grastempo");
 }
 {
@@ -423,6 +425,135 @@ abschnitt("Zeitfahren");
   pruefe(a.beste === Math.min(...a.rundenZeiten), "beste Runde stimmt");
 }
 
+// --- Drei Strecken ------------------------------------------------------------------
+const streckenInfo = [];
+for (const id of S.REIHE) {
+  abschnitt("Strecke " + id);
+  const st = S.baue(S.PLAENE[id]);
+  const g = st.segmente;
+  pruefe(st.id === id && st.name && st.kurz, "Name und Beschreibung (" + st.name + ", " + st.kurz + ")");
+  pruefe(Math.hypot(st.karte.ende.x, st.karte.ende.y) < L, "Karte geschlossen (Abstand " + Math.hypot(st.karte.ende.x, st.karte.ende.y).toFixed(1) + ")");
+  pruefe(Math.abs(Math.abs(st.karte.ende.richtung) - 2 * Math.PI) < 1e-9, "genau eine Umdrehung (" + (st.karte.ende.richtung > 0 ? "im" : "gegen den") + " Uhrzeigersinn)");
+  let stetig = true, sprung = 0;
+  for (let i = 0; i < g.length; i++) {
+    const n = g[(i + 1) % g.length];
+    if (Math.abs(g[i].y2 - n.y1) > 1e-9) stetig = false;
+    sprung = Math.max(sprung, Math.abs(n.kurve - g[i].kurve));
+  }
+  pruefe(stetig && Math.abs(g[g.length - 1].y2 - g[0].y1) < 1e-9, "Höhe stetig, auch über die Ziellinie");
+  pruefe(sprung <= 1.2, "Kurven laufen sanft ein und aus (größter Sprung " + sprung.toFixed(2) + ")");
+  pruefe(Math.abs(g[0].kurve) < 1e-9 && Math.abs(g[g.length - 1].kurve) < 1e-9 && g.slice(-40).every((x) => x.kurve === 0), "Start und Ziel auf gerader Strecke (Startaufstellung)");
+  for (const name of ["gras", "randstein", "strasse"]) {
+    const [a, b] = st.farben[name];
+    pruefe(kontrast(a, b) < 1.25, name + ": Kontrast der Wechselfarben unter 1,25 (" + kontrast(a, b).toFixed(3) + ")");
+  }
+  // Bot: zwei Runden ohne Gras, ohne Aufprall, im Zeitfenster
+  const a = P.neuesAuto();
+  let gras = 0, steht = 0;
+  while (a.rundenZeiten.length < 2 && a.zeit < 300) {
+    P.schritt(a, P.botEingabe(a, st, 0.9), st);
+    if (a.untergrund === "gras") gras++;
+    if (a.zeit > 3 && a.tempo < 0.05 * P.KONST.HOECHST) steht++;
+  }
+  pruefe(a.rundenZeiten.length === 2 && steht === 0, "Bot fährt 2 Runden, ohne stecken zu bleiben");
+  pruefe(gras === 0 && a.stoesse === 0, "Bot bleibt auf der Straße (Gras " + gras + " Takte, Aufpralle " + a.stoesse + ")");
+  pruefe(a.rundenZeiten.every((t) => t >= 45 && t <= 75), "Runden im Zielfenster 45 bis 75 s (" + a.rundenZeiten.map((t) => t.toFixed(2)).join(", ") + " s)");
+  // Echte Bremskurven: mindestens eine Kurve verlangt Bremsen
+  const grenzen = P.kurvenGrenzen(st);
+  const bremskurven = grenzen.kurven.filter((k) => grenzen.grenze[k.von] < 0.8).length;
+  pruefe(bremskurven >= 1, "mindestens eine echte Bremskurve (" + bremskurven + ")");
+  // Deko
+  const arten = {};
+  for (const d of st.deko) arten[d.art] = (arten[d.art] || 0) + 1;
+  pruefe(st.deko.length >= 300, "Deko gesetzt (" + st.deko.length + ": " + Object.entries(arten).map(([k, v]) => k + " " + v).join(", ") + ")");
+  pruefe(["bruecke", "tribuene", "schild", "laterne"].every((k) => arten[k] > 0), "Brücke, Tribünen, Pfeiltafeln und Laternen vorhanden");
+  const aufDerStrasse = st.deko.filter((d) => d.art !== "bruecke" && Math.abs(d.x) - d.breite / 2 < 1 + st.randstein + 0.1);
+  pruefe(aufDerStrasse.length === 0, "keine Deko auf Fahrbahn oder Randstein (" + aufDerStrasse.length + ")");
+  let schilderOk = true;
+  for (const k of st.stuecke) {
+    if (Math.abs(k.kurve) < 3.5) continue;
+    const vor = st.deko.filter((d) => d.art === "schild" && Math.sign(d.x) === -Math.sign(k.kurve) && (k.von - d.seg + st.anzahl) % st.anzahl <= 15);
+    if (vor.length < 3 || !vor.every((d) => d.spiegel === k.kurve < 0)) schilderOk = false;
+  }
+  pruefe(schilderOk, "vor jeder engen Kurve drei Pfeiltafeln außen, Pfeil in Kurvenrichtung");
+  const hind = st.hindernisse.reduce((n, h) => n + (h ? h.length : 0), 0);
+  pruefe(hind > 0 && st.hindernisse.every((h) => !h || h.every((d) => Math.abs(d.x) - d.breite / 2 <= S.KONST.HINDERNIS_BIS)), "Hindernisse nur nahe der Fahrbahn (" + hind + " Einträge)");
+  // Ein Rennen mit Bot und 7 Gegnern
+  const r = R.neu(st, { modus: "rennen", runden: 3, samen: 1 });
+  while (r.phase !== "ziel" && r.zeit < 500) R.schritt(r, null);
+  const alle = R.zuEndeFahren(r, 600);
+  const e = R.ergebnis(r);
+  pruefe(alle && e.map((z) => z.platz).join(",") === "1,2,3,4,5,6,7,8", "Rennen über 3 Runden: alle 8 kommen an, Plätze eindeutig");
+  pruefe(e.every((z, i) => i === 0 || z.gesamt >= e[i - 1].gesamt), "Gesamtzeiten passen zur Reihenfolge");
+  streckenInfo.push(st.name + ": " + st.anzahl + " Segmente, Bot " + a.rundenZeiten.map((t) => t.toFixed(2)).join(" / ") + " s, Deko " + st.deko.length +
+    ", Rennen: dein Bot Platz " + e.find((z) => z.istSpieler).platz + ", Sieger " + e[0].gesamt.toFixed(2) + " s, Aufpralle " + r.autos.reduce((n, x) => n + x.stoesse, 0));
+}
+
+abschnitt("Deko-Aufprall");
+{
+  // Ein Auto fährt neben der Straße genau auf eine Palme zu
+  const palme = strecke.deko.find((d) => d.art === "palme" && strecke.hindernisse[d.seg] && Math.abs(d.x) < 2.2 && d.seg > 200);
+  const fahre = (st) => {
+    const a = P.neuesAuto((palme.seg - 6) * L, palme.x);
+    a.tempo = 0.3 * P.KONST.HOECHST;
+    const vorher = a.tempo;
+    let tiefst = Infinity, maxX = 0;
+    for (let i = 0; i < 40; i++) { P.schritt(a, { gas: 1 }, st); tiefst = Math.min(tiefst, a.tempo); maxX = Math.max(maxX, Math.abs(a.x)); }
+    return { a, vorher, tiefst, maxX };
+  };
+  const mit = fahre(strecke), ohne = fahre(ohneDeko);
+  pruefe(!!palme, "eine Palme nahe der Fahrbahn gefunden (x " + (palme ? palme.x.toFixed(2) : "-") + ")");
+  pruefe(mit.a.stoesse === 1, "Aufprall gezählt (" + mit.a.stoesse + ")");
+  pruefe(mit.tiefst < mit.vorher * 0.6, "Aufprall kostet Tempo (" + Math.round(P.kmh(mit.vorher)) + " auf " + Math.round(P.kmh(mit.tiefst)) + " km/h)");
+  pruefe(Math.abs(mit.a.x - palme.x) >= palme.breite / 2 + P.KONST.AUTO_HALB, "abgeprallt: danach nicht mehr in der Palme (x " + mit.a.x.toFixed(2) + ")");
+  pruefe(mit.maxX <= P.KONST.RAND_AUSSEN + 1e-9, "Abprall bleibt innerhalb des Rands");
+  pruefe(ohne.a.stoesse === 0 && ohne.tiefst >= ohne.vorher * 0.9, "Gegenprobe ohne Deko: kein Aufprall, kaum Tempoverlust");
+}
+
+abschnitt("Rutschen (Reifenklang)");
+{
+  const hn = strecke.stuecke.find((st) => st.name === "Haarnadel am Leuchtturm");
+  const a = P.neuesAuto((hn.von + 30) * L, 0);
+  a.tempo = 0.9 * P.KONST.HOECHST;
+  P.schritt(a, { gas: 1 }, strecke);
+  const b = P.neuesAuto(1000, 0);
+  b.tempo = P.KONST.HOECHST;
+  P.schritt(b, { gas: 1 }, strecke);
+  const c = P.neuesAuto((hn.von + 30) * L, 0);
+  c.tempo = 0.4 * P.KONST.HOECHST;
+  P.schritt(c, { gas: 1 }, strecke);
+  pruefe(a.rutschen > 0.9, "Haarnadel viel zu schnell: Reifen rutschen voll (" + a.rutschen.toFixed(2) + ")");
+  pruefe(b.rutschen === 0, "Gerade mit Höchsttempo: kein Rutschen");
+  pruefe(c.rutschen < 0.5, "Haarnadel langsam: wenig Rutschen (" + c.rutschen.toFixed(2) + ")");
+}
+
+abschnitt("Ton: Automatik und Drehzahl");
+{
+  const T = require(path.join(wurzel, "ton.js"));
+  const G = T.KONST.GAENGE;
+  pruefe(G.length === 7, "sieben Gänge");
+  let gang = 1, wechsel = [], minFall = Infinity, maxDreh = 0, unterLeerlauf = false;
+  let vorherDreh = T.drehzahl(0, 1);
+  for (let a = 0; a <= 1.045; a += 0.001) {
+    const neu = T.gangFuer(a, gang);
+    const dreh = T.drehzahl(a, neu);
+    if (neu !== gang) { wechsel.push(neu); minFall = Math.min(minFall, (vorherDreh - dreh) / vorherDreh); }
+    gang = neu; vorherDreh = dreh;
+    maxDreh = Math.max(maxDreh, dreh);
+    if (dreh < T.KONST.LEERLAUF) unterLeerlauf = true;
+  }
+  pruefe(wechsel.join(",") === "2,3,4,5,6,7", "beim Beschleunigen 1 bis 7 nacheinander (" + wechsel.join(",") + ")");
+  pruefe(minFall > 0.15, "beim Hochschalten fällt die Drehzahl hörbar, mindestens 15 % (" + (minFall * 100).toFixed(0) + " %)");
+  pruefe(maxDreh <= T.KONST.DREH_MAX * 1.02 && !unterLeerlauf, "Drehzahl zwischen Leerlauf und Höchstdrehzahl (" + Math.round(maxDreh) + ")");
+  // kein Pendeln: Tempo zittert um einen Schaltpunkt
+  let g2 = T.gangFuer(G[2] * T.KONST.HOCH_BEI + 0.001, 3), pendel = 0;
+  for (let i = 0; i < 200; i++) { const n = T.gangFuer(G[2] * T.KONST.HOCH_BEI + (i % 2 ? 0.004 : -0.004), g2); if (n !== g2) pendel++; g2 = n; }
+  pruefe(pendel <= 1, "kein Pendeln zwischen zwei Gängen am Schaltpunkt (" + pendel + " Wechsel)");
+  let g3 = 7;
+  for (let a = 1; a >= 0; a -= 0.002) g3 = T.gangFuer(a, g3);
+  pruefe(g3 === 1, "beim Bremsen bis zum Stand zurück in den ersten Gang");
+}
+
 // --- Texte und Dateien --------------------------------------------------------------
 abschnitt("Texte und Dateien");
 function dateien(ordner) {
@@ -452,6 +583,7 @@ console.log("Streckenblitz, Logik ohne Browser (" + strecke.name + ", " + streck
 console.log(ausgabe.join("\n"));
 console.log("  Bot-Runden: " + r.a.rundenZeiten.map((t) => t.toFixed(2) + " s").join(", "));
 console.log("  " + rennInfo);
+for (const z of streckenInfo) console.log("  " + z);
 console.log(`\nSUMME: ${gesamt} Prüfungen, ${fehler.length} Fehler`);
 if (fehler.length) {
   console.log("\n" + fehler.join("\n"));

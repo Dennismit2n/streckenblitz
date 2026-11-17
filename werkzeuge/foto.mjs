@@ -2,9 +2,10 @@
 //   node werkzeuge/foto.mjs <zielordner> [szene ...]
 //   Szenen: fahrt (Menü, dann Bot allein in freier Fahrt, Fotos nach einigen Sekunden), stellen (Fotos an festen Stellen der Strecke),
 //           bedienung (Tasten, Takt der Zahlen, Rundenanzeige),
-//           fps (Bildrate über requestAnimationFrame, 8 s lang, Bot am Steuer im Rennen mit 8 Autos)
+//           fps (Bildrate über requestAnimationFrame, je Strecke 8 s lang, Bot am Steuer im Rennen mit 8 Autos),
+//           strecken (je Strecke: Startaufstellung mit Ampel, Kurve mit Deko, Pulk nach dem Start)
 //   Rennen, Startampel und Ergebnis prüft und fotografiert tests/spiel.mjs.
-//   Vorgabe ohne Szenen: alle vier. Größe 1440 × 900.
+//   Vorgabe ohne Szenen: fahrt, stellen, bedienung, fps. Größe 1440 × 900.
 //   OHNE_GPU=1: Edge ohne Grafikbeschleunigung starten (zum Vergleich der Bildrate).
 //   BASIS=…: andere Adresse als die Vorschau auf Port 8644.
 // Startet genau ein Edge mit eigenem Profil im Temp-Ordner und beendet es am Ende sicher.
@@ -20,6 +21,13 @@ const OHNE_GPU = !!process.env.OHNE_GPU;
 const ziel = process.argv[2];
 if (!ziel) { console.error("Aufruf: node werkzeuge/foto.mjs <zielordner> [fahrt stellen fps]"); process.exit(1); }
 const szenen = process.argv.slice(3).length ? process.argv.slice(3) : ["fahrt", "stellen", "bedienung", "fps"];
+const STRECKEN = ["moewenkap", "mondsenke", "tannenjoch"];
+// Kurven mit Deko für die Szene strecken: Stück und Segmente Anlauf
+const KURVEN = {
+  moewenkap: [["kurve", "Haarnadel am Leuchtturm", 84], ["hafen", "Hafenmole", 30]],
+  mondsenke: [["kurve", "Kaktuskehre", 84], ["felsen", "Felsentor", 60]],
+  tannenjoch: [["kurve", "Jägerkehre", 78], ["dorf", "Dorfgerade", 28]],
+};
 fs.mkdirSync(ziel, { recursive: true });
 const profil = path.join(os.tmpdir(), "streckenblitz-edge-foto");
 fs.rmSync(profil, { recursive: true, force: true });
@@ -99,9 +107,9 @@ try {
   const endung = OHNE_GPU ? "-ohne-gpu" : "";
 
   if (szenen.includes("fahrt")) {
-    await laden(BASIS);
+    await laden(BASIS + "?strecke=moewenkap");
     await foto("menue-1440" + endung + ".png");
-    await laden(BASIS + "?bot=1&modus=frei");
+    await laden(BASIS + "?bot=1&modus=frei&strecke=moewenkap");
     for (const s of [4, 9, 15]) {
       await warte(s === 4 ? 4000 : s === 9 ? 5000 : 6000);
       console.log("nach", s, "s:", await js(zustand));
@@ -112,12 +120,12 @@ try {
   if (szenen.includes("stellen")) {
     for (const st of STELLEN) {
       const segment = await (async () => {
-        await laden(BASIS);
+        await laden(BASIS + "?strecke=moewenkap");
         return js(`(() => { const s = window.streckenblitz.strecke; const t = s.stuecke.find((x) => x.name === ${JSON.stringify(st.stueck)}); return t ? t.von : -1; })()`);
       })();
       if (segment < 0) { console.log("Stück fehlt:", st.stueck); continue; }
       const start = Math.max(0, segment - st.vorlauf);
-      await laden(BASIS + "?bot=1&start=" + start);
+      await laden(BASIS + "?bot=1&strecke=moewenkap&start=" + start);
       // warten, bis der Bot das Stück erreicht hat
       for (let i = 0; i < 80; i++) {
         const n = await js(`(() => { const a = window.streckenblitz.auto, s = window.streckenblitz.strecke; return s.segment(a.z).nr; })()`);
@@ -171,8 +179,29 @@ try {
     await foto("runde-1440" + endung + ".png");
   }
 
-  if (szenen.includes("fps")) {
-    await laden(BASIS + "?bot=1&samen=2");
+  if (szenen.includes("strecken")) {
+    for (const id of STRECKEN) {
+      await laden(BASIS + "?strecke=" + id + "&bot=1&samen=3");
+      for (let i = 0; i < 60 && !(await js(`window.streckenblitz.rennen.ampel.an === 3`)); i++) await warte(100);
+      await foto("strecke-" + id + "-start-1440" + endung + ".png");
+      for (let i = 0; i < 120 && !(await js(`window.streckenblitz.rennen.spieler.zeit > 4.5`)); i++) await warte(100);
+      await foto("strecke-" + id + "-pulk-1440" + endung + ".png");
+      for (const [name, stueck, anlauf] of KURVEN[id]) {
+        const segment = await js(`window.streckenblitz.strecke.stuecke.find((x) => x.name === ${JSON.stringify(stueck)}).von`);
+        await laden(BASIS + "?strecke=" + id + "&bot=1&start=" + Math.max(0, segment - anlauf));
+        for (let i = 0; i < 80; i++) {
+          const n = await js(`(() => { const a = window.streckenblitz.auto, s = window.streckenblitz.strecke; return s.segment(a.z).nr; })()`);
+          if (n >= segment - 12) break;
+          await warte(50);
+        }
+        console.log(id + " " + name + ":", await js(zustand));
+        await foto("strecke-" + id + "-" + name + "-1440" + endung + ".png");
+      }
+    }
+  }
+
+  if (szenen.includes("fps")) for (const id of STRECKEN) {
+    await laden(BASIS + "?bot=1&samen=2&strecke=" + id);
     await warte(7000); // Startampel abwarten, gemessen wird mit dem fahrenden Feld
     const m = await js(`(async () => {
       const zeiten = []; let letzt = performance.now(); const t0 = letzt;
@@ -188,7 +217,7 @@ try {
     const zz = await js(`(() => { const g = window.streckenblitz.grafik, a = window.streckenblitz.auto; const t0 = performance.now();
       for (let i = 0; i < 300; i++) g.zeichne({ z: a.z + i * 40, x: a.x, lenk: 0, untergrund: "strasse", himmelX: i });
       return +((performance.now() - t0) / 300).toFixed(3); })()`);
-    console.log("Bildrate" + (OHNE_GPU ? " ohne GPU" : "") + ":", JSON.stringify(m), "| Zeichnen je Bild", zz, "ms");
+    console.log("Bildrate " + id + (OHNE_GPU ? " ohne GPU" : "") + ":", JSON.stringify(m), "| Zeichnen je Bild", zz, "ms");
   }
 
   console.log("Konsole:", meldungen.length ? "\n  " + meldungen.join("\n  ") : "keine Fehler, keine Warnungen");

@@ -3,8 +3,10 @@
  *
  * Das Spielbild entsteht in einem kleinen Bild von 427 × 240 Pixeln (16:9), das index.html
  * ganzzahlig und scharf vergrößert. Kleines Raster mit sichtbaren Pixeln, aber volle Farben:
- *  - Himmel als Verlauf in der Abenddämmerung (leicht gerastert, damit keine Stufen entstehen),
- *    tief stehende Sonne, ferne Berge mit Lichtkante und nahe Hügel im Dunst, beide mit Parallaxe.
+ *  - Himmel als Verlauf (leicht gerastert, damit keine Stufen entstehen) mit Sonne, Mond oder
+ *    Abendrot, ruhigen Sternen ohne Funkeln, je Strecke eigener Farbe.
+ *  - Kulisse in drei bis vier Ebenen (Meer, Berge, Tafelberge, Gipfel, Stadt, Dünen, Waldkamm, Hügel),
+ *    jede mit eigener Parallaxe in Kurven; mit den Hügeln der Straße rückt sie leicht auf und ab.
  *  - Straße aus Segmenten: Jedes Segment wird auf den Bildschirm projiziert, gezeichnet wird
  *    zeilenweise von vorn nach hinten. maxY merkt sich die höchste schon belegte Zeile, so
  *    verdecken Kuppen alles dahinter.
@@ -15,6 +17,10 @@
  *  - Gegner: dasselbe Auto in ihrer Farbe mit Startnummer auf dem Heckflügel, in festen Größenstufen
  *    pixelgenau aus Code gezeichnet (keine verwaschene Skalierung), gegen Kuppen beschnitten,
  *    hinter der Kamera nicht gezeichnet.
+ *  - Deko aus deko.js: nach Tiefe scharf skaliert (aus vorverkleinerten Stufen), eingedunstet,
+ *    gegen Kuppen beschnitten, zusammen mit den Autos von hinten nach vorn gezeichnet.
+ *  - Das „Neue“: weiche Schatten unter den Autos, weicher Lichtschein der Laternen (additiv,
+ *    gedämpft, steht still), eine leichte Vignette. Kein Hitzeflimmern, nichts blinkt.
  *
  * Läuft nur im Browser (braucht Canvas), Fenstername window.Grafik.
  */
@@ -235,82 +241,307 @@
     return Math.max(0, Math.min(STUFE_ANZAHL - 1, Math.round(Math.log(f / STUFE_MIN) / Math.log(STUFE_SCHRITT))));
   }
 
+  // Kleiner Streuwert aus zwei ganzen Zahlen (für Fenster, Schnee, Krater), immer gleich
+  function streu(a, b) {
+    let h = (Math.imul(a, 73856093) ^ Math.imul(b + 101, 19349663)) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 0x5bd1e995) >>> 0;
+    return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+  }
+  function zufallAus(samen) {
+    let s = samen >>> 0;
+    return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  }
+  const begrenze = (v, a, b) => (v < a ? a : v > b ? b : v);
+
   /*
    * fahrer: Liste der Gegner mit { farbe, nummer } (Index = nr in ansicht.gegner)
    */
   function erzeuge(strecke, neueLeinwand, fahrer) {
     const bild = neueLeinwand(B, H);
     const ctx = bild.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
     const bilddaten = ctx.createImageData(B, H);
     const pix = new Uint32Array(bilddaten.data.buffer);
     const F = strecke.farben;
+    const KU = strecke.kulisse || {};
     const L = strecke.segmente[0].z2 - strecke.segmente[0].z1;
-
-    // Himmelsbahn über eine volle Umdrehung: Verlauf, Sterne, Wolkenstreifen, Sonne, ferne Berge.
-    // Sie dreht sich mit der Fahrtrichtung, die Sonne steht also immer in derselben Himmelsrichtung.
-    const himmelH = HORIZONT + 8;
-    const himmel = new Uint32Array(PANORAMA * himmelH);
     const dunst = rgb(F.dunst);
     const sonne = rgb(F.sonne);
     const sonneX = ((((strecke.sonne || 0) / 360) * PANORAMA) % PANORAMA + PANORAMA) % PANORAMA;
-    const sonneY = HORIZONT - 33, sonneR = 8;
-    const abstandSonne = (x) => { let d = x - sonneX; if (d > PANORAMA / 2) d -= PANORAMA; if (d < -PANORAMA / 2) d += PANORAMA; return d; };
-    // Kämme: Grat-Rauschen (spitze Gipfel statt runder Buckel)
-    const roh = rauschen(PANORAMA, 7, 6, 7);
-    const berge = roh.map((v) => 1 - Math.abs(2 * v - 1));
-    const wolken = rauschen(PANORAMA, 9, 4, 19);
-    const bergFarbe = rgb(F.berge), wolke = rgb(F.wolke), wolkenKante = rgb(F.wolkenKante), stern = rgb(F.stern);
-    for (let y = 0; y < himmelH; y++) {
-      const grund = verlauf(F.himmel, Math.min(1, y / HORIZONT));
-      for (let x = 0; x < PANORAMA; x++) {
-        let c = grund;
-        const dx = abstandSonne(x);
-        const naheSonne = Math.max(0, 1 - Math.abs(dx) / 420);
-        // Wolkenstreifen: zwei flache Bänder, die Unterkante fängt das Abendlicht
-        for (const [mitte, dicke, schwelle] of [[46, 3.2, 0.6], [60, 2.2, 0.64]]) {
-          const dichte = (wolken[(x + mitte * 7) % PANORAMA] - schwelle) * 7;
-          const halb = dicke * Math.min(1, Math.max(0, dichte));
-          const dy = y - mitte;
-          if (halb > 0.3 && Math.abs(dy) <= halb) {
-            c = mische(c, wolke, 0.5 * Math.min(1, dichte) * (1 - 0.4 * Math.abs(dy) / (halb + 0.5)));
-            if (dy > halb - 1) c = mische(c, wolkenKante, (0.25 + 0.5 * naheSonne) * Math.min(1, dichte));
-          }
-        }
-        // Sonne: gedämpfte Scheibe mit weichem Schein, keine helle Fläche
-        const d = Math.hypot(dx, (y - sonneY) * 1.1);
-        if (d < sonneR) c = mische(c, sonne, 0.9 - 0.25 * (d / sonneR) * (d / sonneR));
-        else if (d < 80) c = mische(c, sonne, 0.24 * Math.pow(1 - d / 80, 2.4));
-        // Ferne Berge mit Lichtkante; unter der Sonne ein Sattel, damit sie frei über dem Kamm steht
-        const sattel = 0.45 + 0.55 * Math.min(1, Math.abs(dx) / 110);
-        const kamm = HORIZONT - 4 - (0.15 + 0.85 * berge[x]) * 22 * sattel;
-        if (y >= kamm) {
-          const tief = Math.min(1, (y - kamm) / 26);
-          c = mische(mische(bergFarbe, dunst, 0.12 + 0.55 * tief), grund, 0.1);
-          if (y - kamm < 1) c = mische(c, sonne, 0.1 + 0.4 * naheSonne);
-        }
-        himmel[y * PANORAMA + x] = packRaster(c, x, y);
-      }
-    }
-    // Sterne: ruhig, ohne Funkeln, nach unten hin seltener und schwächer
+    // Abstand zur Sonne (oder zum Mond) auf einer Bahn der Breite breite, deren Sonnenspalte bei sx liegt
+    const abstandAuf = (x, sx, breite) => { let d = x - sx; if (d > breite / 2) d -= breite; if (d < -breite / 2) d += breite; return d; };
+
+    // --- Himmel: Verlauf, Sterne, Milchstraße, Wolken, Sonne, Mond oder Abendrot ------------------
+    // Die Himmelsbahn umfasst eine volle Umdrehung und dreht mit der Fahrtrichtung.
+    const himmelH = HORIZONT + 8;
+    const himmel = new Uint32Array(PANORAMA * himmelH);
     {
-      let s = 977;
-      const zufall = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
-      for (let i = 0; i < 150; i++) {
-        const x = Math.floor(zufall() * PANORAMA), y = Math.floor(Math.pow(zufall(), 1.6) * 58);
-        if (Math.abs(abstandSonne(x)) < 90) continue;
-        const staerke = (0.18 + 0.4 * zufall()) * (1 - y / 70);
-        const grund = verlauf(F.himmel, y / HORIZONT);
-        himmel[y * PANORAMA + x] = pack(mische(grund, stern, staerke));
+      const art = KU.himmelskoerper || "sonne";
+      const sonneY = art === "mond" ? 36 : HORIZONT - 33, sonneR = art === "mond" ? 6 : 8;
+      const wolken = KU.wolken === false ? null : rauschen(PANORAMA, 9, 4, 19);
+      const wolke = rgb(F.wolke), wolkenKante = rgb(F.wolkenKante), stern = rgb(F.stern);
+      const band = KU.milchstrasse ? rauschen(PANORAMA, 24, 4, 71) : null;
+      const bandMitte = (x) => 24 + 20 * Math.sin((2 * Math.PI * x) / PANORAMA + 1.3);
+      for (let y = 0; y < himmelH; y++) {
+        const grund = verlauf(F.himmel, Math.min(1, y / HORIZONT));
+        for (let x = 0; x < PANORAMA; x++) {
+          let c = grund;
+          const dx = abstandAuf(x, sonneX, PANORAMA);
+          const naheSonne = Math.max(0, 1 - Math.abs(dx) / 420);
+          // Milchstraße: ein sehr schwacher, ruhiger Schleier quer über den Himmel
+          if (band) {
+            const abst = Math.abs(y - bandMitte(x));
+            if (abst < 16) c = mische(c, stern, 0.075 * Math.exp(-(abst / 7) * (abst / 7)) * (0.45 + 0.55 * band[x]) * Math.min(1, (HORIZONT - y) / 40));
+          }
+          // Wolkenstreifen: zwei flache Bänder, die Unterkante fängt das Restlicht
+          if (wolken) {
+            for (const [mitte, dicke, schwelle] of [[46, 3.2, 0.6], [60, 2.2, 0.64]]) {
+              const dichte = (wolken[(x + mitte * 7) % PANORAMA] - schwelle) * 7;
+              const halb = dicke * Math.min(1, Math.max(0, dichte));
+              const dy = y - mitte;
+              if (halb > 0.3 && Math.abs(dy) <= halb) {
+                c = mische(c, wolke, 0.5 * Math.min(1, dichte) * (1 - 0.4 * Math.abs(dy) / (halb + 0.5)));
+                if (dy > halb - 1) c = mische(c, wolkenKante, (0.25 + 0.5 * naheSonne) * Math.min(1, dichte));
+              }
+            }
+          }
+          const d = Math.hypot(dx, (y - sonneY) * 1.1);
+          if (art === "sonne") {
+            // gedämpfte Scheibe mit weichem Schein, keine helle Fläche
+            if (d < sonneR) c = mische(c, sonne, 0.9 - 0.25 * (d / sonneR) * (d / sonneR));
+            else if (d < 80) c = mische(c, sonne, 0.24 * Math.pow(1 - d / 80, 2.4));
+          } else if (art === "mond") {
+            // Mondscheibe mit dunkleren Flecken, kleiner Hof
+            if (d < sonneR) {
+              const fleck = streu(Math.round(dx + 20), y) < 0.3 || (Math.abs(dx + 2) < 2 && Math.abs(y - sonneY + 1) < 2) ? 0.2 : 0;
+              c = mische(c, sonne, 0.86 - fleck - 0.2 * (d / sonneR) * (d / sonneR));
+            } else if (d < 48) c = mische(c, sonne, 0.11 * Math.pow(1 - d / 48, 2));
+          } else {
+            // Abendrot: die Sonne ist hinter den Bergen, ihr Schein liegt breit über dem Horizont
+            const tief = Math.max(0, (y - 30) / (HORIZONT - 30));
+            const breit = Math.max(0, 1 - Math.abs(dx) / 360);
+            c = mische(c, sonne, 0.42 * breit * breit * tief * tief);
+          }
+          himmel[y * PANORAMA + x] = packRaster(c, x, y);
+        }
+      }
+      // Sterne: ruhig, ohne Funkeln, nach unten hin seltener und schwächer
+      const zufall = zufallAus(977);
+      const stern1 = (x, y, staerke) => {
+        if (y < 0 || y >= himmelH) return;
+        himmel[y * PANORAMA + x] = pack(mische(verlauf(F.himmel, y / HORIZONT), stern, staerke));
+      };
+      const anzahl = KU.sterne == null ? 150 : KU.sterne;
+      const sperre = art === "sonne" ? 90 : art === "mond" ? 22 : 0;
+      for (let i = 0; i < anzahl; i++) {
+        const x = Math.floor(zufall() * PANORAMA), y = Math.floor(Math.pow(zufall(), 1.5) * 70);
+        const staerke = (0.16 + 0.42 * zufall()) * Math.max(0, 1 - y / 78);
+        if (Math.abs(abstandAuf(x, sonneX, PANORAMA)) < sperre && Math.abs(y - sonneY) < sperre) continue;
+        stern1(x, y, staerke);
+      }
+      // Milchstraße: dichter, aber schwächer gestreut
+      if (band) {
+        for (let i = 0; i < 520; i++) {
+          const x = Math.floor(zufall() * PANORAMA);
+          const y = Math.round(bandMitte(x) + (zufall() + zufall() + zufall() - 1.5) * 9);
+          if (Math.abs(abstandAuf(x, sonneX, PANORAMA)) < sperre && Math.abs(y - sonneY) < sperre) continue;
+          stern1(x, y, (0.08 + 0.2 * zufall()) * Math.max(0, 1 - y / 78));
+        }
       }
     }
-    // Nahe Hügel: Höhenprofil, gefärbt von dunkel (Kamm) zu Dunst (Fuß); drehen sich etwas schneller (Parallaxe)
-    const huegel = rauschen(PANORAMA, 10, 4, 31);
-    const huegelFarbe = rgb(F.huegel);
-    const huegelZeile = [];
-    for (let i = 0; i < 24; i++) huegelZeile.push(pack(mische(huegelFarbe, dunst, Math.pow(i / 23, 1.5) * 0.8)));
+
+    // --- Kulisse: bis zu vier Ebenen mit eigener Parallaxe --------------------------------------
+    // Jede Ebene ist eine Bahn der Breite PANORAMA · fx: Nach einer vollen Umdrehung steht sie wieder genau gleich.
+    // kamm[x] ist die oberste belegte Zeile, darunter ist die Ebene dicht bis UNTEN (die Kulisse rückt mit Hügeln auf und ab).
+    const UNTEN = HORIZONT + 18;
+    function ebene(fx, fy, hoehe, farbe) {
+      const P = Math.round(PANORAMA * fx);
+      const kamm = new Int16Array(P);
+      let oben = UNTEN;
+      for (let x = 0; x < P; x++) {
+        const k = Math.round(hoehe(x, P));
+        kamm[x] = Math.min(UNTEN, Math.max(0, k));
+        oben = Math.min(oben, kamm[x]);
+      }
+      const daten = new Uint32Array(P * (UNTEN - oben));
+      for (let x = 0; x < P; x++) {
+        for (let y = kamm[x]; y < UNTEN; y++) daten[(y - oben) * P + x] = packRaster(farbe(x, y, kamm[x], P, kamm), x, y);
+      }
+      return { fx, fy, P, kamm, oben, daten };
+    }
+    const ebenen = [];
+    const sonneIn = (x, P) => abstandAuf(x, (sonneX * P) / PANORAMA, P);
+    const himmelBei = (y) => verlauf(F.himmel, Math.min(1, Math.max(0, y) / HORIZONT));
+    const tiefe = (y, k, spanne) => Math.min(1, (y - k) / spanne);
+    const ART = KU.fern || "berge";
+
+    // Meer: offener Horizont unter der Sonne, ruhiger Lichtweg aus Strichen (steht still)
+    if (KU.meer) {
+      const meer = rgb(F.meer);
+      ebenen.push(ebene(1, 0.5, () => HORIZONT - 3, (x, y, k) => {
+        const dx = sonneIn(x, PANORAMA);
+        let c = mische(meer, dunst, 0.2 + 0.6 * tiefe(y, k, 20));
+        if (y === k) c = mische(c, sonne, 0.1 + 0.3 * Math.max(0, 1 - Math.abs(dx) / 200));
+        const weg = 1.5 + (y - k) * 1.1;
+        if (Math.abs(dx) < weg && (y + Math.floor((dx + 40) / 3)) % 2 === 0) c = mische(c, sonne, 0.32 * (1 - Math.abs(dx) / weg) * (1 - tiefe(y, k, 22)));
+        return c;
+      }));
+    }
+    // Ferne Ebene
+    if (ART === "berge") {
+      const roh = rauschen(PANORAMA, 7, 6, 7), bergFarbe = rgb(F.berge);
+      ebenen.push(ebene(1, 0.5, (x) => {
+        const dx = Math.abs(sonneIn(x, PANORAMA));
+        // unter der Sonne öffnet sich der Kamm zum Meer (ohne Meer: ein Sattel, die Sonne steht frei)
+        const sattel = KU.meer ? Math.min(1, Math.max(0, (dx - 70) / 220)) : 0.45 + 0.55 * Math.min(1, dx / 110);
+        if (sattel <= 0.02) return UNTEN;
+        return HORIZONT - 4 - (0.15 + 0.85 * (1 - Math.abs(2 * roh[x] - 1))) * 22 * sattel + (KU.meer ? (1 - sattel) * 6 : 0);
+      }, (x, y, k) => {
+        const naheSonne = Math.max(0, 1 - Math.abs(sonneIn(x, PANORAMA)) / 420);
+        let c = mische(mische(bergFarbe, dunst, 0.12 + 0.55 * tiefe(y, k, 26)), himmelBei(y), 0.1);
+        if (y === k) c = mische(c, sonne, 0.1 + 0.4 * naheSonne);
+        return c;
+      }));
+    } else if (ART === "tafelberge") {
+      // Tafelberge: flache Kuppen mit steilen Flanken, Schichten, Mondlicht auf der Kante
+      const grat = rauschen(PANORAMA, 12, 3, 41), bergFarbe = rgb(F.berge);
+      const z = zufallAus(43), tafeln = [];
+      for (let i = 0; i < 7; i++) tafeln.push({ c: z() * PANORAMA, b: 50 + z() * 110, h: 12 + z() * 16, flanke: 9 + z() * 10 });
+      // steile Flanken, oben fast eben mit leichten Buckeln
+      const hoeheBei = (x) => {
+        let h = 2 + grat[x] * 4;
+        for (const t of tafeln) {
+          const d = Math.abs(abstandAuf(x, t.c, PANORAMA));
+          if (d >= t.b / 2) continue;
+          const rand = (t.b / 2 - d) / t.flanke;
+          const oben = t.h + 1.6 * Math.sin(x * 0.11 + t.c) + (grat[x] - 0.5) * 2.5;
+          h = Math.max(h, (rand < 1 ? Math.pow(rand, 0.75) : 1) * oben);
+        }
+        return h;
+      };
+      ebenen.push(ebene(1, 0.5, (x) => HORIZONT - 2 - hoeheBei(x), (x, y, k) => {
+        const naheMond = Math.max(0, 1 - Math.abs(sonneIn(x, PANORAMA)) / 500);
+        let c = mische(bergFarbe, dunst, 0.12 + 0.5 * tiefe(y, k, 22));
+        if ((y - k) % 6 === 4 && y < HORIZONT) c = hell(c, 0.93);
+        if (y === k) c = mische(c, sonne, 0.1 + 0.16 * naheMond);
+        return c;
+      }));
+    } else if (ART === "gipfel") {
+      // Hohe, zackige Gipfel: Schnee nur gedämpft, Abendrot auf den Graten
+      const roh = rauschen(PANORAMA, 6, 7, 53), bergFarbe = rgb(F.berge), schnee = rgb(F.schnee);
+      const spitze = (x) => Math.pow(1 - Math.abs(2 * roh[x] - 1), 1.4);
+      ebenen.push(ebene(1, 0.5, (x) => HORIZONT - 6 - (0.1 + 0.9 * spitze(x)) * 36, (x, y, k, P, kamm) => {
+        const naheSonne = Math.max(0, 1 - Math.abs(sonneIn(x, P)) / 380);
+        let c = mische(bergFarbe, dunst, 0.1 + 0.55 * tiefe(y, k, 40));
+        const s = spitze(x);
+        const schneeTiefe = (s - 0.5) * 28 * (0.6 + 0.4 * streu(x, 3));
+        if (y - k < schneeTiefe && streu(x, y) < 0.88) c = mische(c, schnee, 0.5 * (1 - (y - k) / schneeTiefe));
+        // Flanken, die nach links schauen, fangen das Restlicht
+        const hang = kamm[(x + 1) % P] - kamm[(x + P - 1) % P];
+        if (hang > 0 && y - k < 10) c = mische(c, sonne, 0.06 * Math.min(1, hang / 2) * (1 - (y - k) / 10));
+        if (y - k < 1) c = mische(c, sonne, 0.16 + 0.34 * naheSonne);
+        return c;
+      }));
+    }
+    // Mittlere Ebene
+    if (KU.mitte === "stadt") {
+      // Hafenstadt: Häuser, ein Turm, wenige warme Fenster, die ruhig leuchten
+      const P = Math.round(PANORAMA * 1.1), mitte = Math.round(P * 0.33), halb = 150;
+      const stadt = rgb(F.stadt), fenster = rgb(F.fenster);
+      const hoehen = new Float32Array(P).fill(-1), giebel = new Uint8Array(P);
+      const z = zufallAus(59);
+      for (let x = mitte - halb; x < mitte + halb;) {
+        const b = 3 + Math.floor(z() * 8);
+        const huelle = 1 - Math.pow((x - mitte) / halb, 2);
+        const h = 2 + (z() * 9 + 3) * huelle;
+        const dach = z() < 0.4;
+        for (let i = 0; i < b; i++) {
+          const xx = ((x + i) % P + P) % P;
+          hoehen[xx] = h + (dach ? Math.min(i, b - 1 - i) * 0.8 : 0);
+          giebel[xx] = i === 0 || i === b - 1 ? 1 : 0;
+        }
+        x += b + (z() < 0.2 ? 2 : 0);
+      }
+      for (let i = -1; i <= 1; i++) hoehen[mitte + 20 + i] = 21 - Math.abs(i) * 5; // Kirchturm
+      ebenen.push(ebene(1.1, 0.7, (x) => (hoehen[x] < 0 ? UNTEN : HORIZONT - 1 - hoehen[x]), (x, y, k) => {
+        let c = mische(stadt, dunst, 0.22 + 0.45 * tiefe(y, k, 14));
+        if (y === k) c = mische(c, sonne, 0.12);
+        else if (y > k + 1 && y < HORIZONT && !giebel[x] && streu(x, y) < 0.075) c = mische(fenster, dunst, 0.38);
+        return c;
+      }));
+    } else if (KU.mitte === "duenen" || KU.mitte === "waldkamm") {
+      const P = Math.round(PANORAMA * 1.12);
+      if (KU.mitte === "duenen") {
+        const farbe = rgb(F.duenen);
+        const phasen = [0.3, 2.1, 4.4, 1.2];
+        const h = (x) => {
+          const t = (2 * Math.PI * x) / P;
+          const v = 0.4 * Math.sin(3 * t + phasen[0]) + 0.3 * Math.sin(5 * t + phasen[1]) + 0.2 * Math.sin(9 * t + phasen[2]) + 0.1 * Math.sin(14 * t + phasen[3]);
+          return Math.pow((v + 1) / 2, 1.4) * 11;
+        };
+        ebenen.push(ebene(1.12, 0.75, (x) => HORIZONT - 1 - h(x), (x, y, k, P2, kamm) => {
+          let c = mische(farbe, dunst, 0.25 + 0.45 * tiefe(y, k, 16));
+          const hang = kamm[(x + 1) % P2] - kamm[(x + P2 - 1) % P2];
+          c = hang < 0 ? mische(c, sonne, 0.07 * Math.min(1, -hang)) : hell(c, 1 - 0.06 * Math.min(1, hang));
+          if (y === k) c = mische(c, sonne, 0.12);
+          return c;
+        }));
+      } else {
+        const wald = rgb(F.wald), grat = rauschen(P, 9, 4, 61);
+        const spitzen = new Float32Array(P).fill(0), z = zufallAus(67);
+        for (let x = 0; x < P;) {
+          const th = 3 + z() * 5, hb = th * 0.34;
+          for (let i = -Math.ceil(hb); i <= Math.ceil(hb); i++) {
+            const xx = (x + i + P) % P;
+            spitzen[xx] = Math.max(spitzen[xx], th * (1 - Math.abs(i) / (hb + 0.5)));
+          }
+          x += 2 + Math.floor(z() * 3);
+        }
+        ebenen.push(ebene(1.12, 0.75, (x) => HORIZONT - 5 - grat[x] * 9 - spitzen[x], (x, y, k) => {
+          let c = mische(wald, dunst, 0.3 + 0.45 * tiefe(y, k, 16));
+          if (y === k && streu(x, 9) < 0.5) c = mische(c, sonne, 0.1);
+          return c;
+        }));
+      }
+    }
+    // Nahe Ebene
+    {
+      const nah = KU.nah || "huegel", farbe = rgb(F.huegel), P = Math.round(PANORAMA * 1.25);
+      const rohH = rauschen(P, 10, 4, 31);
+      if (nah === "huegel") {
+        // Am Meer sind die Hügel unter der Sonne flach, damit der Horizont frei bleibt
+        ebenen.push(ebene(1.25, 1, (x) => {
+          const offen = KU.meer ? Math.min(1, Math.max(0.15, (Math.abs(sonneIn(x, P)) - 120) / 260)) : 1;
+          return HORIZONT - 2 - Math.pow(rohH[x], 1.6) * 13 * offen;
+        }, (x, y, k) => mische(farbe, dunst, Math.pow(Math.min(1, (y - k) / 23), 1.5) * 0.8)));
+      } else if (nah === "duenenNah") {
+        ebenen.push(ebene(1.25, 1, (x) => HORIZONT - 1 - Math.pow(rohH[x], 1.3) * 12, (x, y, k, P2, kamm) => {
+          let c = mische(farbe, dunst, Math.pow(Math.min(1, (y - k) / 22), 1.4) * 0.75);
+          const hang = kamm[(x + 1) % P2] - kamm[(x + P2 - 1) % P2];
+          if (hang < 0 && y - k < 6) c = mische(c, sonne, 0.06);
+          if (y === k) c = mische(c, sonne, 0.1);
+          return c;
+        }));
+      } else {
+        const spitzen = new Float32Array(P).fill(0), z = zufallAus(71);
+        for (let x = 0; x < P;) {
+          const th = 6 + z() * 8, hb = th * 0.32;
+          for (let i = -Math.ceil(hb); i <= Math.ceil(hb); i++) {
+            const xx = (x + i + P) % P;
+            spitzen[xx] = Math.max(spitzen[xx], th * (1 - Math.abs(i) / (hb + 0.5)));
+          }
+          x += 3 + Math.floor(z() * 4);
+        }
+        ebenen.push(ebene(1.25, 1, (x) => HORIZONT - 2 - Math.pow(rohH[x], 1.4) * 9 - spitzen[x], (x, y, k) => {
+          let c = mische(farbe, dunst, Math.pow(Math.min(1, (y - k) / 26), 1.4) * 0.7);
+          if (y === k && streu(x, 13) < 0.4) c = mische(c, sonne, 0.09);
+          return c;
+        }));
+      }
+    }
     const dunstPix = pack(dunst);
 
-    // Farben je Segment und Dunststufe vorberechnet (64 Stufen)
+    // --- Straße: Farben je Segment und Dunststufe vorberechnet (64 Stufen) ----------------------
     const STUFEN = 64, BAENDER = 8;
     function stufen(hex) {
       const c = rgb(hex);
@@ -329,6 +560,7 @@
     // Asphalt mit leichtem Verlauf quer: zur Mitte etwas heller, zu den Rändern dunkler
     const strasse = F.strasse.map((hex) => Array.from({ length: STUFEN }, (_, i) =>
       Array.from({ length: BAENDER }, (_, b) => pack(mische(hell(rgb(hex), 1.07 - 0.16 * Math.pow(b / (BAENDER - 1), 2)), dunst, i / (STUFEN - 1))))));
+    const nebelBei = (n) => Math.min(STUFEN - 1, Math.round((1 - Math.exp(-(n / SICHT) * (n / SICHT) * NEBEL)) * (STUFEN - 1)));
 
     const sprites = [-1, 0, 1].map((n) => {
       const c = neueLeinwand(AUTO_B, AUTO_H);
@@ -350,6 +582,85 @@
         gegnerSpeicher.set(schluessel, c);
       }
       return c;
+    }
+
+    // --- Weiche Lichter und Schatten (glatte Verläufe, das einzig „Neue“ zwischen den Pixeln) -------
+    function scheibe(groesse, farbe, stopps) {
+      const c = neueLeinwand(groesse, groesse), g = c.getContext("2d");
+      const v = g.createRadialGradient(groesse / 2, groesse / 2, 0, groesse / 2, groesse / 2, groesse / 2);
+      const [r, gr, b] = rgb(farbe);
+      for (const [t, a] of stopps) v.addColorStop(t, "rgba(" + r + "," + gr + "," + b + "," + a + ")");
+      g.fillStyle = v;
+      g.fillRect(0, 0, groesse, groesse);
+      return c;
+    }
+    const schein = scheibe(64, F.deko ? F.deko.schein : "#a06e3e", [[0, 1], [0.22, 0.55], [0.55, 0.16], [1, 0]]);
+    const schatten = scheibe(64, "#04030a", [[0, 0.62], [0.5, 0.4], [0.8, 0.12], [1, 0]]);
+    // Leichte Vignette: die Ecken etwas dunkler, die Mitte unberührt
+    const vignette = neueLeinwand(B, H);
+    {
+      const g = vignette.getContext("2d");
+      const v = g.createRadialGradient(B / 2, H * 0.46, B * 0.3, B / 2, H * 0.46, B * 0.72);
+      v.addColorStop(0, "rgba(3, 2, 9, 0)");
+      v.addColorStop(1, "rgba(3, 2, 9, 0.42)");
+      g.fillStyle = v;
+      g.fillRect(0, 0, B, H);
+    }
+    // Weicher Schatten auf dem Boden (Mitte cx, Unterkante y, Breite b)
+    function bodenSchatten(cx, y, b, h) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(schatten, Math.round(cx - b / 2), Math.round(y - h / 2), Math.round(b), Math.max(2, Math.round(h)));
+      ctx.imageSmoothingEnabled = false;
+    }
+
+    // --- Deko-Bilder: einmal gemalt, gespiegelt, in halben Größen vorgerechnet, mit Dunst-Schattenriss --
+    const D = typeof Deko !== "undefined" ? Deko : null;
+    const artSpeicher = new Map();
+    function artBild(art, variante, spiegel) {
+      const schluessel = art + ":" + variante + ":" + (spiegel ? 1 : 0);
+      let a = artSpeicher.get(schluessel);
+      if (a) return a;
+      const roh = D.malen(art, variante, F.deko, neueLeinwand);
+      let basis = roh.bild, fussX = roh.fussX, lichter = roh.lichter;
+      if (spiegel) {
+        const c = neueLeinwand(roh.b, roh.h), g = c.getContext("2d");
+        g.translate(roh.b, 0);
+        g.scale(-1, 1);
+        g.drawImage(roh.bild, 0, 0);
+        basis = c;
+        fussX = roh.b - fussX;
+        lichter = lichter.map((l) => Object.assign({}, l, { x: roh.b - l.x }));
+      }
+      // Stufen: volle Größe, dann jeweils halb so groß (geglättet verkleinert, danach wird nur noch scharf skaliert)
+      const stufenListe = [];
+      let akt = basis;
+      for (;;) {
+        const silh = neueLeinwand(akt.width, akt.height), g = silh.getContext("2d");
+        g.drawImage(akt, 0, 0);
+        g.globalCompositeOperation = "source-in";
+        g.fillStyle = F.dunst;
+        g.fillRect(0, 0, akt.width, akt.height);
+        stufenListe.push({ bild: akt, silh });
+        if (akt.width < 6 || akt.height < 6) break;
+        const k = neueLeinwand(Math.ceil(akt.width / 2), Math.ceil(akt.height / 2)), kg = k.getContext("2d");
+        kg.imageSmoothingEnabled = true;
+        kg.imageSmoothingQuality = "high";
+        kg.drawImage(akt, 0, 0, k.width, k.height);
+        akt = k;
+      }
+      a = { b: roh.b, h: roh.h, fussX, lichter, stufen: stufenListe };
+      artSpeicher.set(schluessel, a);
+      return a;
+    }
+    // Deko je Segment (ohne unsichtbare Pfeiler), Spielart aus der Stelle
+    const dekoJeSeg = Array.from({ length: strecke.anzahl }, () => null);
+    if (D && strecke.deko) {
+      for (const d of strecke.deko) {
+        if (d.unsichtbar) continue;
+        const n = D.VARIANTEN[d.art] || 1;
+        const eintrag = { d, variante: (d.seg * 7 + Math.round(Math.abs(d.x) * 13)) % n };
+        (dekoJeSeg[d.seg] || (dekoJeSeg[d.seg] = [])).push(eintrag);
+      }
     }
 
     // Eine Bildschirmzeile Straße füllen
@@ -431,7 +742,7 @@
       }
       const kamX = ansicht.x * strecke.breite + querAuto;
 
-      // Himmel und Berge nach der Fahrtrichtung, darunter Dunst
+      // Himmel nach der Fahrtrichtung, darunter Dunst
       const drehung = (strecke.richtungBei(ansicht.z) / (2 * Math.PI)) * PANORAMA;
       const versatzFern = (((Math.round(drehung - B / 2)) % PANORAMA) + PANORAMA) % PANORAMA;
       for (let y = 0; y < himmelH; y++) {
@@ -444,12 +755,21 @@
         }
       }
       pix.fill(dunstPix, himmelH * B);
-      // Nahe Hügel (volle Parallaxe)
-      const versatzNah = (((Math.round(drehung * 1.25 - B / 2)) % PANORAMA) + PANORAMA) % PANORAMA;
-      for (let x = 0; x < B; x++) {
-        const h = huegel[(x + versatzNah) % PANORAMA];
-        const kamm = Math.round(HORIZONT + 1 - 3 - Math.pow(h, 1.6) * 13);
-        for (let y = Math.max(0, kamm); y < HORIZONT + 6; y++) pix[y * B + x] = huegelZeile[Math.min(23, y - kamm)];
+      // Kulisse: Ebenen mit Parallaxe. Liegt die Straße weiter vorn höher, rückt die Kulisse hoch, hinter Kuppen sinkt sie.
+      const hier = strecke.hoeheBei(ansicht.z);
+      const fern = (strecke.hoeheBei(ansicht.z + 20000) + strecke.hoeheBei(ansicht.z + 30000) + strecke.hoeheBei(ansicht.z + 40000)) / 3;
+      const hub = begrenze((hier - fern) * 0.0026, -9, 9);
+      for (const e of ebenen) {
+        const vx = (((Math.round(drehung * e.fx - B / 2)) % e.P) + e.P) % e.P;
+        const dy = Math.round(hub * e.fy);
+        for (let x = 0; x < B; x++) {
+          const p = (x + vx) % e.P;
+          const k = e.kamm[p];
+          for (let y = k; y < UNTEN; y++) {
+            const Y = y + dy;
+            if (Y >= 0 && Y < H) pix[Y * B + x] = e.daten[(y - e.oben) * e.P + p];
+          }
+        }
       }
 
       // Straße von vorn nach hinten
@@ -474,8 +794,7 @@
         if (y2 >= maxY || y2 >= y1) continue;
         const x1 = B / 2 + s1 * (qx1 - kamX) * (B / 2), x2 = B / 2 + s2 * (qx2 - kamX) * (B / 2);
         const w1 = s1 * strecke.breite * (B / 2), w2 = s2 * strecke.breite * (B / 2);
-        const f = n / SICHT;
-        const stufe = Math.min(STUFEN - 1, Math.round((1 - Math.exp(-f * f * NEBEL)) * (STUFEN - 1)));
+        const stufe = nebelBei(n);
         const oben = Math.max(0, Math.ceil(y2 - 0.5));
         const unten = Math.min(maxY, H, Math.ceil(y1 - 0.5));
         for (let y = oben; y < unten; y++) {
@@ -486,19 +805,96 @@
       }
       ctx.putImageData(bilddaten, 0, 0);
 
-      // Autos von hinten nach vorn: Gegner und das eigene Auto in der Reihenfolge ihrer Tiefe
+      // Deko, Gegner und das eigene Auto von hinten nach vorn
       const liste = [];
+      for (let n = 0; n < SICHT - 2; n++) {
+        const eintraege = dekoJeSeg[(basis.nr + n) % strecke.anzahl];
+        if (!eintraege) continue;
+        for (const e of eintraege) {
+          const zr = n * L + (e.d.z - strecke.segmente[(basis.nr + n) % strecke.anzahl].z1) - anteil * L;
+          if (zr < ABSTAND * 0.25) continue; // unter oder hinter der Kamera
+          liste.push({ zr, n, e });
+        }
+      }
       for (const g of ansicht.gegner || []) {
         const zr = (((g.z - kamZ) % laenge) + laenge) % laenge;
         if (zr < ABSTAND * 0.3 || zr > (SICHT - 2) * L) continue; // hinter oder unter der Kamera, oder zu weit weg
         liste.push({ zr, g });
       }
-      liste.push({ zr: ABSTAND, g: null });
+      liste.push({ zr: ABSTAND, ich: true });
       liste.sort((a, b) => b.zr - a.zr);
-      for (const { zr, g } of liste) {
-        if (g) gegnerZeichnen(g, zr, anteil, kamX, kamY);
+      for (const t of liste) {
+        if (t.e) dekoZeichnen(t.e, t.zr, t.n, anteil, kamX, kamY);
+        else if (t.g) gegnerZeichnen(t.g, t.zr, anteil, kamX, kamY);
         else eigenesAuto(ansicht);
       }
+      ctx.drawImage(vignette, 0, 0);
+    }
+
+    // Ein Bild beschnitten zeichnen: nur die Zeilen oberhalb von frei (Kuppen verdecken den Rest)
+    function beschnitten(quelle, x0, y0, x1, y1, frei) {
+      if (y0 >= frei || x1 <= x0 || y1 <= y0) return;
+      const sichtbar = Math.min(y1, frei) - y0;
+      ctx.drawImage(quelle, 0, 0, quelle.width, (quelle.height * sichtbar) / (y1 - y0), x0, y0, x1 - x0, sichtbar);
+    }
+
+    function dekoZeichnen(e, zr, n, anteil, kamX, kamY) {
+      const d = e.d;
+      const s = TIEFE / zr;
+      const t = zr / L + anteil - n;
+      const quer = segQuer[n] + segDx[n] * t;
+      const boden = strecke.hoeheBei(d.z);
+      const yBoden = HORIZONT + s * (kamY - boden) * (H / 2);
+      const jeEinheit = s * (B / 2);
+      const xBoden = B / 2 + (quer + d.x * strecke.breite - kamX) * jeEinheit;
+      const a = artBild(d.art, e.variante, d.spiegel);
+      const k = jeEinheit * D.KUNST; // Bildschirmpixel je Bildpixel
+      const dw = a.b * k, dh = a.h * k;
+      if (dh < 1.5) return;
+      const left = xBoden - a.fussX * k, top = yBoden - dh;
+      if (left > B || left + dw < 0 || top >= H) return;
+      const frei = Math.min(H, segFrei[n]);
+      if (top >= frei) return;
+      const nebel = nebelBei(n) / (STUFEN - 1);
+      // Lichtfleck der Laterne auf dem Boden, vor dem Mast
+      for (const l of a.lichter) {
+        if (!l.boden) continue;
+        const rx = 900 * jeEinheit, ry = rx * Math.min(0.6, (0.562 * (kamY - boden)) / zr);
+        const cx = left + l.x * k;
+        if (yBoden - ry >= frei) continue;
+        lichtZeichnen(cx, yBoden, rx, ry, 0.15 * (1 - nebel), frei);
+      }
+      // passende Größenstufe: die kleinste, die noch mindestens so breit ist wie das Ziel
+      let st = a.stufen[0];
+      for (const kandidat of a.stufen) { if (kandidat.bild.width >= dw * 0.98) st = kandidat; else break; }
+      const x0 = Math.round(left), x1 = Math.round(left + dw), y0 = Math.round(top), y1 = Math.round(yBoden);
+      beschnitten(st.bild, x0, y0, x1, y1, frei);
+      if (nebel > 0.01) {
+        ctx.globalAlpha = nebel;
+        beschnitten(st.silh, x0, y0, x1, y1, frei);
+        ctx.globalAlpha = 1;
+      }
+      for (const l of a.lichter) {
+        const r = l.r * jeEinheit;
+        if (r < 0.8) continue;
+        const ly = top + l.y * k;
+        if (ly >= frei) continue;
+        lichtZeichnen(left + l.x * k, ly, r, r, l.staerke * (1 - 0.85 * nebel), frei);
+      }
+    }
+
+    // Weicher, gedämpfter Lichtschein (additiv), gegen Kuppen beschnitten
+    function lichtZeichnen(cx, cy, rx, ry, staerke, frei) {
+      if (staerke <= 0.005) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, B, frei);
+      ctx.clip();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = Math.min(1, staerke);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(schein, cx - rx, cy - ry, 2 * rx, 2 * ry);
+      ctx.restore();
     }
 
     function gegnerZeichnen(g, zr, anteil, kamX, kamY) {
@@ -517,10 +913,7 @@
       ctx.beginPath();
       ctx.rect(0, 0, B, frei);
       ctx.clip();
-      ctx.fillStyle = "rgba(4, 3, 10, 0.34)";
-      ctx.beginPath();
-      ctx.ellipse(Math.round(x) - 3 * f, unten - f, (AUTO_B / 2 + 3) * f, Math.max(1, 4 * f), 0, 0, Math.PI * 2);
-      ctx.fill();
+      bodenSchatten(Math.round(x) - 3 * f, unten - f, (AUTO_B + 14) * f, Math.max(2, 11 * f));
       ctx.drawImage(bild, Math.round(x - bild.width / 2), unten - bild.height);
       ctx.restore();
     }
@@ -531,21 +924,12 @@
       const autoY = HORIZONT + H / 2 - AUTO_H + 2;
       const ruettel = ansicht.untergrund === "randstein" && Math.floor(ansicht.z / (L * 2)) % 2 ? 1 : 0;
       const ax = Math.round(B / 2 - AUTO_B / 2), ay = autoY - ruettel;
-      ctx.save();
-      ctx.fillStyle = "rgba(4, 3, 10, 0.32)";
-      ctx.beginPath();
-      ctx.ellipse(ax + AUTO_B / 2 - 3, ay + AUTO_H - 1, AUTO_B / 2 + 4, 5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(4, 3, 10, 0.38)";
-      ctx.beginPath();
-      ctx.ellipse(ax + AUTO_B / 2 - 2, ay + AUTO_H - 1, AUTO_B / 2 - 2, 3, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      bodenSchatten(ax + AUTO_B / 2 - 3, ay + AUTO_H - 1, AUTO_B + 16, 13);
       const bildNr = ansicht.lenk < -0.3 ? 0 : ansicht.lenk > 0.3 ? 2 : 1;
       ctx.drawImage(sprites[bildNr], ax, ay);
     }
 
-    return { bild, zeichne, sprites, gegnerBild };
+    return { bild, zeichne, sprites, gegnerBild, artBild };
   }
 
   return { B, H, HORIZONT, KAMERA_HOEHE, TIEFE, ABSTAND, SICHT, erzeuge, autoZeichnen, teamFarben, AUTO_B, AUTO_H, rgb, mische };

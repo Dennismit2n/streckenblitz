@@ -8,6 +8,8 @@
  *  - Fliehkraft proportional zu Kurve mal Tempo zum Quadrat, Lenkwirkung proportional zum Tempo:
  *    Daraus folgt für jede Kurve ein Grenztempo, über dem man nach außen getragen wird.
  *  - Gras bremst stark und begrenzt das Tempo, Randsteine bremsen leicht, bergauf kostet Tempo.
+ *  - Deko nahe der Fahrbahn (Bäume, Felsen, Laternen, Schilder, Brückenpfeiler) ist fest: Wer
+ *    hineinfährt, prallt zur Seite ab und verliert gut die Hälfte des Tempos.
  *  - Automatik: Gas beschleunigt mit zum Höchsttempo hin abnehmender Kraft.
  *  - Runden werden beim Überfahren der Ziellinie auf den Bruchteil eines Takts genau gestoppt.
  *  - Ein Bot liefert Eingaben wie ein Spieler (Gegner-KI und Tests bauen darauf auf).
@@ -44,6 +46,11 @@
     BOT_VERZOEGERUNG: 0.85,  // der Bot plant mit diesem Anteil der echten Verzögerung (Bremse plus Rollen)
     BOT_BREITE: 1.0,         // so viel Fahrbahn (halbe Breiten) darf eine Kurve den Bot nach außen tragen
     KURVE_AB: 0.05,          // ab diesem Kurvenwert zählt ein Segment zu einer Kurve
+    AUTO_HALB: 0.19,         // halbe Autobreite in halben Fahrbahnbreiten (für Deko)
+    STOSS_TEMPO: 0.45,       // so viel Tempo bleibt nach einem Aufprall an der Deko
+    ABPRALL: 0.08,           // so weit springt das Auto über die Berührung hinaus zurück
+    RUTSCH_AB: 0.9,          // Reifen beginnen zu rutschen ab diesem Anteil am Grenztempo der Kurve ...
+    RUTSCH_VOLL: 1.15,       // ... und rutschen voll ab diesem (Klang)
   });
 
   function begrenze(w, min, max) {
@@ -63,6 +70,8 @@
       rundenZeiten: [],
       untergrund: "strasse", // strasse, randstein oder gras
       flieh: 0,              // Querweg je Sekunde durch die Fliehkraft (für Anzeige und Klang)
+      rutschen: 0,           // 0 bis 1: wie weit die Fliehkraft über dem liegt, was die Reifen halten (Klang)
+      stoesse: 0,            // Zahl der Aufpralle an der Deko (Klang und Tests)
     };
   }
 
@@ -116,6 +125,24 @@
     if (Math.abs(auto.x) > K.RAND_AUSSEN) {
       auto.x = Math.sign(auto.x) * K.RAND_AUSSEN;
       auto.tempo *= 0.985;
+    }
+    // Rutschen: Verhältnis von Fliehkraft zu dem, was die volle Lenkung hält (= Tempo zum Grenztempo der Kurve)
+    const verhaeltnis = anteil > 0.2 ? Math.abs(auto.flieh) / (K.LENKUNG * anteil) : 0;
+    auto.rutschen = begrenze((verhaeltnis - K.RUTSCH_AB) / (K.RUTSCH_VOLL - K.RUTSCH_AB), 0, 1);
+
+    // Deko: abprallen und Tempo verlieren
+    const hindernisse = strecke.hindernisse && strecke.hindernisse[seg.nr];
+    if (hindernisse) {
+      for (const d of hindernisse) {
+        const dx = auto.x - d.x, noetig = d.breite / 2 + K.AUTO_HALB;
+        if (Math.abs(dx) >= noetig) continue;
+        let seite = dx !== 0 ? Math.sign(dx) : -Math.sign(d.x); // zurück, woher das Auto kam
+        if (Math.abs(d.x + seite * (noetig + K.ABPRALL)) > K.RAND_AUSSEN) seite = -seite; // außen ist kein Platz
+        auto.x = d.x + seite * (noetig + K.ABPRALL);
+        auto.tempo *= K.STOSS_TEMPO;
+        auto.lenk *= 0.3;
+        auto.stoesse++;
+      }
     }
 
     // Weiter und Runde zählen
