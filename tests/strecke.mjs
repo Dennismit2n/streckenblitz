@@ -14,6 +14,7 @@ const wurzel = path.join(hier, "..");
 const require = createRequire(import.meta.url);
 const S = require(path.join(wurzel, "strecke.js"));
 const P = require(path.join(wurzel, "physik.js"));
+const R0 = require(path.join(wurzel, "rennen.js"));
 
 const fehler = [];
 let gesamt = 0;
@@ -223,6 +224,103 @@ abschnitt("Physik Fahrgefühl");
   }
   pruefe(voll.gras > 60, "Haarnadel mit Vollgas trägt ins Gras (" + voll.gras + " Takte)");
   pruefe(!!beste && beste.zeit < voll.zeit - 0.3, "Haarnadel: Bremsen ist schneller als durchs Gras (" + (beste ? beste.zeit.toFixed(2) : "keine Fahrt ohne Gras") + " s gegen " + voll.zeit.toFixed(2) + " s)");
+}
+
+// --- Tempo, Rekuperation und E-Turbo (M5) -----------------------------------------
+abschnitt("Höchsttempo und E-Turbo");
+{
+  const K = P.KONST;
+  // Eine lange, ebene Gerade ohne Ende (nur das, was schritt() von einer Strecke braucht)
+  const gerade = { laenge: 1e12, randstein: strecke.randstein, hindernisse: null, segment: () => ({ nr: 0, kurve: 0, y1: 0, y2: 0, z1: 0, z2: L }) };
+  const kmh = (a) => P.kmh(a.tempo);
+  const a = P.neuesAuto(0, 0);
+  let max = 0, bis340 = null;
+  for (let i = 0; i < 60 * 60; i++) { P.schritt(a, { gas: 1 }, gerade); max = Math.max(max, kmh(a)); if (bis340 == null && kmh(a) >= 340) bis340 = a.zeit; }
+  pruefe(Math.abs(kmh(a) - 342) <= 2 && max <= 344, "ohne Turbo auf langer Gerade 342 km/h erreicht und nicht überschritten (" + kmh(a).toFixed(1) + ", höchstens " + max.toFixed(1) + " km/h, 340 nach " + (bis340 || 0).toFixed(1) + " s)");
+  pruefe(Math.round(P.kmh(K.HOECHST)) === 342, "Anzeige rechnet das Höchsttempo als 342 km/h (" + P.kmh(K.HOECHST).toFixed(2) + ")");
+  pruefe(a.akku === K.AKKU_START && K.AKKU_START === 0.5, "Akku startet halb voll und Gas allein lädt nicht (" + a.akku + ")");
+  // Zünden mit vollem Akku bei 342 km/h: schneller bis etwa 365, danach wieder zurück
+  a.akku = 1;
+  let turboMax = 0, akkuMin = 1, akkuMax = 0, takteAn = 0;
+  for (let i = 0; i < 60 * 9; i++) {
+    P.schritt(a, { gas: 1, turbo: i < 30 }, gerade); // 0,5 s gehalten: zündet nur einmal
+    turboMax = Math.max(turboMax, kmh(a)); akkuMin = Math.min(akkuMin, a.akku); akkuMax = Math.max(akkuMax, a.akku);
+    if (a.turbo > 0) takteAn++;
+  }
+  pruefe(Math.abs(turboMax - 365) <= 5, "mit Turbo etwa 365 km/h (" + turboMax.toFixed(1) + ")");
+  pruefe(a.zuendungen === 1 && Math.abs(takteAn / 60 - K.TURBO_DAUER) < 0.05, "gehaltene Taste zündet einmal, Schub " + (takteAn / 60).toFixed(2) + " s");
+  pruefe(Math.abs(kmh(a) - 342) <= 2, "nach dem Schub wieder zurück auf 342 km/h (" + kmh(a).toFixed(1) + ")");
+  pruefe(Math.abs(1 - a.akku - K.TURBO_VERBRAUCH * K.TURBO_DAUER) < 0.01 && akkuMin >= 0 && akkuMax <= 1, "Akku leert sich im Schub um " + (1 - a.akku).toFixed(3) + " und bleibt in 0 bis 1");
+  // Ein leerer werdender Akku beendet den Schub früher
+  const b = P.neuesAuto(0, 0);
+  b.tempo = K.HOECHST; b.akku = 0.3;
+  let bAn = 0;
+  for (let i = 0; i < 60 * 4; i++) { P.schritt(b, { gas: 1, turbo: i === 0 }, gerade); if (b.turbo > 0) bAn++; }
+  pruefe(b.akku === 0 && Math.abs(bAn / 60 - 0.3 / K.TURBO_VERBRAUCH) < 0.05, "Schub endet, wenn der Akku leer ist (" + (bAn / 60).toFixed(2) + " s bei 0,3 Ladung)");
+  // Unter der Mindestladung zündet nichts
+  const c = P.neuesAuto(0, 0);
+  c.tempo = 0.8 * K.HOECHST; c.akku = K.TURBO_MIN - 0.01;
+  P.schritt(c, { gas: 1, turbo: true }, gerade);
+  pruefe(c.zuendungen === 0 && c.turbo === 0, "unter der Mindestladung " + K.TURBO_MIN + " zündet der Turbo nicht");
+  const vorLinie = P.neuesAuto(0, 0);
+  vorLinie.runde = 0; vorLinie.tempo = 0.5 * K.HOECHST;
+  P.schritt(vorLinie, { gas: 1, turbo: true }, gerade);
+  pruefe(vorLinie.zuendungen === 0, "in der Startaufstellung (Runde 0) zündet der Turbo nicht, erst ab der Linie");
+  // Kein Dauerfeuer: nach einem Schub erst nach der Pause wieder, und nur mit neuem Druck
+  const d = P.neuesAuto(0, 0);
+  d.tempo = K.HOECHST; d.akku = 1;
+  const drueck = (n) => { for (let i = 0; i < n; i++) P.schritt(d, { gas: 1, turbo: i % 2 === 0 }, gerade); }; // Taste flattert
+  drueck(Math.round(60 * (K.TURBO_DAUER + K.TURBO_PAUSE * 0.5)));
+  const mitten = d.zuendungen;
+  drueck(Math.round(60 * K.TURBO_PAUSE));
+  const h = P.neuesAuto(0, 0);
+  h.tempo = K.HOECHST; h.akku = 1;
+  for (let i = 0; i < 60 * 10; i++) P.schritt(h, { gas: 1, turbo: true }, gerade);
+  pruefe(h.zuendungen === 1, "dauernd gehaltene Taste zündet in 10 s nur einmal (" + h.zuendungen + ")");
+  pruefe(mitten === 1 && d.zuendungen === 2, "kein Dauerfeuer: während Schub und Pause keine zweite Zündung, danach wieder (" + mitten + ", " + d.zuendungen + ")");
+}
+abschnitt("Rekuperation");
+{
+  const K = P.KONST;
+  const gerade = { laenge: 1e12, randstein: strecke.randstein, hindernisse: null, segment: () => ({ nr: 0, kurve: 0, y1: 0, y2: 0, z1: 0, z2: L }) };
+  const fahre = (x, tempo, eingabe, takte, st) => {
+    const a = P.neuesAuto(1000, x);
+    a.tempo = tempo; a.akku = 0.3;
+    for (let i = 0; i < takte; i++) P.schritt(a, eingabe, st || gerade);
+    return a;
+  };
+  const bremst = fahre(0, 0.9 * K.HOECHST, { bremse: 1 }, 60);
+  const abbau = 0.9 * K.HOECHST - bremst.tempo;
+  const erwartet = 0.3 + (K.REKU_BREMSE * Math.min(abbau, K.BREMSE) + K.REKU_ROLLEN * K.ROLLEN) / K.HOECHST;
+  pruefe(bremst.akku > 0.3 + 0.2 && Math.abs(bremst.akku - erwartet) < 0.02, "Bremsen lädt aus dem Tempoabbau (" + (bremst.akku - 0.3).toFixed(3) + " nach 1 s Vollbremsung von 308 km/h, erwartet " + (erwartet - 0.3).toFixed(3) + ")");
+  const gas = fahre(0, 0.5 * K.HOECHST, { gas: 1 }, 120);
+  pruefe(gas.akku === 0.3, "Gas lädt nicht (" + gas.akku + ")");
+  const rollt = fahre(0, 0.9 * K.HOECHST, {}, 60);
+  pruefe(rollt.akku > 0.3 && rollt.akku - 0.3 < (bremst.akku - 0.3) / 3, "Rollen ohne Gas lädt etwas, deutlich weniger als Bremsen (" + (rollt.akku - 0.3).toFixed(3) + ")");
+  const gras = fahre(2, 0.6 * K.HOECHST, { bremse: 1 }, 60, ohneDeko);
+  pruefe(gras.untergrund === "gras" && gras.akku === 0.3, "im Gras lädt nichts (" + gras.akku + ")");
+  const steht = fahre(0, 0, { bremse: 1 }, 120);
+  pruefe(steht.akku === 0.3, "im Stand mit Bremse lädt nichts");
+  const v2 = P.neuesAuto(1000, 0); v2.tempo = K.HOECHST; v2.akku = 0.99;
+  for (let i = 0; i < 120; i++) P.schritt(v2, { bremse: 1 }, gerade);
+  pruefe(v2.akku === 1, "der Akku wird nie voller als 1");
+}
+abschnitt("Turbo deterministisch");
+{
+  function fahrtTurbo() {
+    const a = P.neuesAuto();
+    for (let i = 0; i < 6000; i++) {
+      const e = P.botEingabe(a, strecke, 0.9);
+      e.turbo = i % 700 === 300 || i % 700 === 301;
+      P.schritt(a, e, strecke);
+    }
+    return JSON.stringify(a);
+  }
+  const t1 = fahrtTurbo(), t2 = fahrtTurbo();
+  pruefe(t1 === t2 && JSON.parse(t1).zuendungen >= 3, "zweimal gleiche Eingaben mit Turbo, gleicher Zustand nach 6000 Takten (" + JSON.parse(t1).zuendungen + " Zündungen)");
+  const r1 = R0.neu(strecke, { modus: "rennen", runden: 3, samen: 4 }), r2 = R0.neu(strecke, { modus: "rennen", runden: 3, samen: 4 });
+  for (let i = 0; i < 60 * 70; i++) { R0.schritt(r1, null); R0.schritt(r2, null); }
+  pruefe(JSON.stringify(r1.autos.map((x) => [x.z, x.tempo, x.akku, x.zuendungen])) === JSON.stringify(r2.autos.map((x) => [x.z, x.tempo, x.akku, x.zuendungen])) && r1.autos.some((x) => x.zuendungen > 0), "Rennen mit zündenden Gegnern läuft bei gleichem Samen gleich");
 }
 
 // --- Bot -----------------------------------------------------------------------
@@ -480,13 +578,25 @@ for (const id of S.REIHE) {
   pruefe(hind > 0 && st.hindernisse.every((h) => !h || h.every((d) => Math.abs(d.x) - d.breite / 2 <= S.KONST.HINDERNIS_BIS)), "Hindernisse nur nahe der Fahrbahn (" + hind + " Einträge)");
   // Ein Rennen mit Bot und 7 Gegnern
   const r = R.neu(st, { modus: "rennen", runden: 3, samen: 1 });
-  while (r.phase !== "ziel" && r.zeit < 500) R.schritt(r, null);
+  let akkuMin = 1, akkuMax = 0, schnellst = 0;
+  while (r.phase !== "ziel" && r.zeit < 500) {
+    R.schritt(r, null);
+    for (const x of r.autos) { akkuMin = Math.min(akkuMin, x.akku); akkuMax = Math.max(akkuMax, x.akku); schnellst = Math.max(schnellst, x.tempo); }
+  }
+  const zuend = r.autos.map((x) => x.zuendungen);
+  pruefe(akkuMin >= 0 && akkuMax <= 1, "Akku aller Autos im ganzen Rennen in 0 bis 1 (" + akkuMin.toFixed(2) + " bis " + akkuMax.toFixed(2) + ")");
+  pruefe(zuend.slice(1).every((n) => n > 0) && zuend[0] > 0, "jeder Gegner und der Bot an deiner Stelle zünden den Turbo (" + zuend.join(", ") + ")");
+  const stile = {};
+  r.autos.slice(1).forEach((x) => { (stile[x.fahrer.turbo] = stile[x.fahrer.turbo] || []).push(x); });
+  const sparerFrueh = (stile.spart || []).every((x) => x.zuendungen <= Math.max(...(stile.draengt || []).map((y) => y.zuendungen)));
+  pruefe(Object.keys(stile).length >= 4 && sparerFrueh, "verschiedene Fahrstile (" + Object.keys(stile).join(", ") + "), Sparer zünden nicht öfter als Drängler");
+  pruefe(P.kmh(schnellst) > 345 && P.kmh(schnellst) < 375, "im Rennen fährt jemand mit Turbo über 342 km/h (" + P.kmh(schnellst).toFixed(1) + ")");
   const alle = R.zuEndeFahren(r, 600);
   const e = R.ergebnis(r);
   pruefe(alle && e.map((z) => z.platz).join(",") === "1,2,3,4,5,6,7,8", "Rennen über 3 Runden: alle 8 kommen an, Plätze eindeutig");
   pruefe(e.every((z, i) => i === 0 || z.gesamt >= e[i - 1].gesamt), "Gesamtzeiten passen zur Reihenfolge");
   streckenInfo.push(st.name + ": " + st.anzahl + " Segmente, Bot " + a.rundenZeiten.map((t) => t.toFixed(2)).join(" / ") + " s, Deko " + st.deko.length +
-    ", Rennen: dein Bot Platz " + e.find((z) => z.istSpieler).platz + ", Sieger " + e[0].gesamt.toFixed(2) + " s, Aufpralle " + r.autos.reduce((n, x) => n + x.stoesse, 0));
+    ", Rennen: dein Bot Platz " + e.find((z) => z.istSpieler).platz + ", Sieger " + e[0].gesamt.toFixed(2) + " s, Aufpralle " + r.autos.reduce((n, x) => n + x.stoesse, 0) + ", Zündungen " + zuend.join("/"));
 }
 
 abschnitt("Deko-Aufprall");
@@ -520,7 +630,9 @@ abschnitt("Rutschen (Reifenklang)");
   b.tempo = P.KONST.HOECHST;
   P.schritt(b, { gas: 1 }, strecke);
   const c = P.neuesAuto((hn.von + 30) * L, 0);
-  c.tempo = 0.4 * P.KONST.HOECHST;
+  // langsam heißt: knapp unter dem Grenztempo dieser Stelle (seit M5 aus der Kurve selbst statt 40 % des Höchsttempos,
+  // weil das Höchsttempo stieg und die Fliehkraft stärker wurde)
+  c.tempo = 0.95 * P.grenzAnteil(strecke.segment(c.z).kurve) * P.KONST.HOECHST;
   P.schritt(c, { gas: 1 }, strecke);
   pruefe(a.rutschen > 0.9, "Haarnadel viel zu schnell: Reifen rutschen voll (" + a.rutschen.toFixed(2) + ")");
   pruefe(b.rutschen === 0, "Gerade mit Höchsttempo: kein Rutschen");

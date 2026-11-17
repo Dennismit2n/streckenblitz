@@ -10,6 +10,8 @@
  *  - Gummiband: Gegner vor dir werden ein klein wenig langsamer, Gegner hinter dir ein wenig schneller (höchstens 2,5 %).
  *  - Windschatten: dicht hinter einem Auto steigt das Höchsttempo um bis zu 4,5 %.
  *  - Berührungen bremsen und schieben zur Seite, niemand scheidet aus.
+ *  - E-Turbo: Gegner laden beim Bremsen wie du und zünden je nach Fahrstil auf Geraden, zum Überholen,
+ *    zum Verteidigen oder erst in der letzten Runde; erst nach der Startlinie.
  *  - Platzierung nach gefahrenem Weg, im Ziel nach Ankunft. Kommt der Spieler an, fahren die übrigen
  *    Autos ohne Bild zu Ende (zuEndeFahren), dann steht das Ergebnis fest.
  * Zufall nur aus einem festen Samen: Ein Rennen mit gleichen Eingaben läuft immer gleich.
@@ -45,21 +47,37 @@
     FEHLER_FRUEH: 0.8,       // Fahrfehler sonst: zu früh vom Gas, kostet Zeit
     AUSLAUF_MOTOR: 0.6,      // nach dem Ziel rollen die Autos gemächlich weiter
     BOT_MUT: 0.95,           // Mut des Bots, wenn er für dich fährt (?bot=1)
+    TURBO_DUELL: 8000,       // so viel freie Gerade braucht ein Turbo zum Überholen oder Verteidigen
+    TURBO_VORN: 2500,        // Überholen: ein Auto höchstens so weit vor dir, ungefähr auf deiner Spur
+    TURBO_HINTEN: 2000,      // Verteidigen: ein Auto höchstens so weit hinter dir
+    TURBO_VOLL: 0.9,         // ab dieser Ladung zündet jeder auf einer langen Geraden, sonst verfiele die Rekuperation
+    TURBO_SICHT: 20000,      // so weit voraus wird die freie Gerade gesucht
+  });
+
+  // Fahrstile mit dem E-Turbo: ab (Ladung zum Zünden auf einer Geraden), gerade (freie Gerade dafür),
+  // ueberholen und verteidigen (zündet im Zweikampf), zielrunde (spart für die letzte Runde)
+  const STILE = Object.freeze({
+    draengt: { ab: 0.25, gerade: 4000, ueberholen: true, verteidigen: true },
+    ueberholt: { ab: 0.4, gerade: 14000, ueberholen: true },
+    verteidigt: { ab: 0.4, gerade: 14000, verteidigen: true },
+    gleichmaessig: { ab: 0.5, gerade: 16000, ueberholen: true },
+    spart: { ab: 0.9, gerade: 16000, zielrunde: true },
   });
 
   // Erfundene Fahrer (keine echten Namen). Farbe und Startnummer, damit sie auch ohne Farbsehen unterscheidbar sind.
   // Reihenfolge = Startaufstellung (dein Platz wird eingeschoben); sie folgt nicht ganz dem Können, damit es Überholmanöver gibt.
-  // motor: Faktor auf das Höchsttempo, mut: Reserve auf die Kurvengrenze, fehler: Anteil der Kurven mit Fahrfehler
+  // motor: Faktor auf das Höchsttempo, mut: Reserve auf die Kurvengrenze, fehler: Anteil der Kurven mit Fahrfehler,
+  // turbo: Fahrstil mit dem E-Turbo (STILE)
   const FAHRER = Object.freeze([
-    { name: "Linnea Krook", nummer: 9, farbe: "#3f6a39", motor: 0.992, mut: 0.97, fehler: 0.05 },
-    { name: "Ravi Tannhold", nummer: 12, farbe: "#34508e", motor: 0.990, mut: 0.95, fehler: 0.08 },
-    { name: "Greta Ostwald", nummer: 4, farbe: "#7c2f3a", motor: 1.000, mut: 0.99, fehler: 0.04 },
-    { name: "Selin Arda", nummer: 16, farbe: "#653f86", motor: 0.985, mut: 0.94, fehler: 0.06 },
-    { name: "Mateo Brisa", nummer: 7, farbe: "#94742c", motor: 0.995, mut: 0.98, fehler: 0.07 },
-    { name: "Juna Fahlberg", nummer: 27, farbe: "#6b7183", motor: 0.978, mut: 0.91, fehler: 0.12 },
-    { name: "Oskar Wendelin", nummer: 21, farbe: "#9c5530", motor: 0.982, mut: 0.92, fehler: 0.10 },
+    { name: "Linnea Krook", nummer: 9, farbe: "#3f6a39", motor: 0.992, mut: 0.97, fehler: 0.05, turbo: "verteidigt" },
+    { name: "Ravi Tannhold", nummer: 12, farbe: "#34508e", motor: 0.990, mut: 0.95, fehler: 0.08, turbo: "ueberholt" },
+    { name: "Greta Ostwald", nummer: 4, farbe: "#7c2f3a", motor: 1.000, mut: 0.99, fehler: 0.04, turbo: "spart" },
+    { name: "Selin Arda", nummer: 16, farbe: "#653f86", motor: 0.985, mut: 0.94, fehler: 0.06, turbo: "gleichmaessig" },
+    { name: "Mateo Brisa", nummer: 7, farbe: "#94742c", motor: 0.995, mut: 0.98, fehler: 0.07, turbo: "draengt" },
+    { name: "Juna Fahlberg", nummer: 27, farbe: "#6b7183", motor: 0.978, mut: 0.91, fehler: 0.12, turbo: "draengt" },
+    { name: "Oskar Wendelin", nummer: 21, farbe: "#9c5530", motor: 0.982, mut: 0.92, fehler: 0.10, turbo: "spart" },
   ]);
-  const SPIELER = Object.freeze({ name: "Du", nummer: null, farbe: "#287178", motor: 1, mut: KONST.BOT_MUT, fehler: 0 });
+  const SPIELER = Object.freeze({ name: "Du", nummer: null, farbe: "#287178", motor: 1, mut: KONST.BOT_MUT, fehler: 0, turbo: "gleichmaessig" });
 
   // Kleiner, fester Zufallsgenerator (mulberry32)
   function zufallAus(samen) {
@@ -190,7 +208,29 @@
       a.fehlerMut = a.fahrer.fehler > 0 && r.zufall() < a.fahrer.fehler ? (bremskurve ? KONST.FEHLER_SPAET : KONST.FEHLER_FRUEH) : 1;
     }
     const mut = a.fertig ? 0.8 : a.fahrer.mut * a.fehlerMut;
-    return P.botEingabe(a, r.strecke, mut, verkehr(r, a));
+    const e = P.botEingabe(a, r.strecke, mut, verkehr(r, a));
+    e.turbo = !a.fertig && e.gas === 1 && turboZuenden(r, a);
+    return e;
+  }
+
+  // E-Turbo der Gegner (und des Bots): auf einer freien Geraden, im Zweikampf oder in der letzten Runde, je nach Stil
+  function turboZuenden(r, a) {
+    const K = KONST;
+    if (!P.turboBereit(a)) return false;
+    const stil = STILE[a.fahrer.turbo] || STILE.gleichmaessig;
+    const frei = P.freieStrecke(a, r.strecke, K.TURBO_SICHT);
+    if (a.akku >= stil.ab && frei >= stil.gerade) return true;
+    if (a.akku >= K.TURBO_VOLL && frei >= K.TURBO_DUELL) return true;
+    if (frei < K.TURBO_DUELL) return false;
+    if (stil.zielrunde && a.runde >= r.runden) return true;
+    if (!stil.ueberholen && !stil.verteidigen) return false;
+    for (const b of r.autos) {
+      if (b === a || b.fertig) continue;
+      const dz = abstand(b, a, r.laenge);
+      if (stil.ueberholen && dz > 0 && dz < K.TURBO_VORN && Math.abs(b.x - a.x) < 0.6) return true;
+      if (stil.verteidigen && dz < 0 && dz > -K.TURBO_HINTEN) return true;
+    }
+    return false;
   }
 
   // Höchsttempo-Faktor: Können, Gummiband (nur Gegner im Rennen), Windschatten
@@ -308,5 +348,5 @@
     }));
   }
 
-  return { KONST, FAHRER, SPIELER, neu, schritt, platzierung, fortschritt, zuEndeFahren, ergebnis, abstand, zufallAus, motor, beruehrungen };
+  return { KONST, FAHRER, SPIELER, STILE, neu, schritt, platzierung, fortschritt, zuEndeFahren, ergebnis, abstand, zufallAus, motor, beruehrungen };
 });

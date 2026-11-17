@@ -13,8 +13,10 @@
  *  - Automatik: Gas beschleunigt mit zum Höchsttempo hin abnehmender Kraft.
  *  - Runden werden beim Überfahren der Ziellinie auf den Bruchteil eines Takts genau gestoppt.
  *  - Ein Bot liefert Eingaben wie ein Spieler (Gegner-KI und Tests bauen darauf auf).
+ *  - Rekuperation: Bremsen und Rollen laden einen Akku (0 bis 1). Der E-Turbo zündet auf Tastendruck, gibt für
+ *    einige Sekunden mehr Schub und ein höheres Höchsttempo und leert dabei den Akku.
  *
- * Eingabe: { gas: 0..1, bremse: 0..1, lenken: -1..1 } (analog, damit später ein Gamepad passt).
+ * Eingabe: { gas: 0..1, bremse: 0..1, lenken: -1..1, turbo: true|false } (analog, damit ein Gamepad passt).
  * Die Datei läuft im Browser (window.Physik) und unter Node (require), ohne DOM.
  */
 (function (wurzel, fabrik) {
@@ -26,21 +28,22 @@
   const KONST = Object.freeze({
     TAKT: 1 / 60,            // Physik-Takt in Sekunden
     MAX_NACHHOLZEIT: 0.25,   // mehr Rückstand je Bild wird verworfen
-    HOECHST: 12000,          // Höchsttempo in Welteinheiten je Sekunde
-    KMH: 0.026,              // Anzeige: Welteinheiten je Sekunde mal KMH ergibt km/h (Höchsttempo 312)
+    HOECHST: 13154,          // Höchsttempo in Welteinheiten je Sekunde (342 km/h)
+    BEZUG: 12000,            // Lenkung und Fliehkraft rechnen mit diesem Tempo (das Höchsttempo bis M4): Kurven bleiben gleich schnell
+    KMH: 0.026,              // Anzeige: Welteinheiten je Sekunde mal KMH ergibt km/h (Höchsttempo 342)
     BESCHLEUNIGUNG: 4200,    // Schub aus dem Stand, nimmt zum Höchsttempo hin ab
-    SCHUB_REST: 0.12,        // Anteil des Schubs, der beim Höchsttempo übrig bleibt
+    SCHUB_REST: 0.035,       // Anteil des Schubs, der beim Höchsttempo übrig bleibt (bis 312 km/h derselbe Schub wie bis M4)
     BREMSE: 8500,
     ROLLEN: 1400,            // Verzögerung ohne Gas und Bremse
-    LENKUNG: 2.1,            // Querweg in halben Fahrbahnbreiten je Sekunde bei Höchsttempo und vollem Einschlag
+    LENKUNG: 2.1,            // Querweg in halben Fahrbahnbreiten je Sekunde bei Bezugstempo und vollem Einschlag
     LENK_AUF: 5.5,           // so schnell folgt der Einschlag der Eingabe (je Sekunde)
     LENK_ZURUECK: 8,         // so schnell geht er zurück zur Mitte
-    FLIEHKRAFT: 0.62,        // Querweg je Sekunde bei Höchsttempo und Kurve 1
+    FLIEHKRAFT: 0.70,        // Querweg je Sekunde bei Bezugstempo und Kurve 1 (bis M4 0,62)
     HANG: 1500,              // Tempoverlust bergauf je Einheit Steigung
     RANDSTEIN_BREMSE: 900,
     GRAS_BREMSE: 9000,       // über dem Grastempo
     GRAS_ROLLEN: 2200,
-    GRAS_HOECHST: 0.34,      // Anteil des Höchsttempos, mehr geht auf dem Gras nicht
+    GRAS_HOECHST: 0.31,      // Anteil des Höchsttempos, mehr geht auf dem Gras nicht (106 km/h wie bisher)
     GRAS_SCHUB: 0.45,        // Anteil des Schubs auf dem Gras
     RAND_AUSSEN: 2.3,        // weiter als so kommt das Auto nicht von der Mitte weg
     BOT_VERZOEGERUNG: 0.85,  // der Bot plant mit diesem Anteil der echten Verzögerung (Bremse plus Rollen)
@@ -51,6 +54,16 @@
     ABPRALL: 0.08,           // so weit springt das Auto über die Berührung hinaus zurück
     RUTSCH_AB: 0.9,          // Reifen beginnen zu rutschen ab diesem Anteil am Grenztempo der Kurve ...
     RUTSCH_VOLL: 1.15,       // ... und rutschen voll ab diesem (Klang)
+    // Rekuperation und E-Turbo
+    AKKU_START: 0.5,         // so voll ist der Akku am Start
+    REKU_BREMSE: 0.5,        // Akku je Höchsttempo, das die Bremse abbaut
+    REKU_ROLLEN: 0.25,       // Akku je Höchsttempo, das beim Rollen ohne Gas verloren geht
+    TURBO_MIN: 0.25,         // mindestens so viel Akku zum Zünden
+    TURBO_DAUER: 3,          // Sekunden Schub je Zündung, solange der Akku reicht
+    TURBO_VERBRAUCH: 0.22,   // Akku je Sekunde während des Schubs
+    TURBO_PAUSE: 2,          // Sekunden nach einem Schub, bevor wieder gezündet werden kann
+    TURBO_HOECHST: 365 / 342, // Faktor auf das Höchsttempo während des Schubs (365 km/h)
+    TURBO_SCHUB: 2,          // Faktor auf den Schub des Motors
   });
 
   function begrenze(w, min, max) {
@@ -72,6 +85,11 @@
       flieh: 0,              // Querweg je Sekunde durch die Fliehkraft (für Anzeige und Klang)
       rutschen: 0,           // 0 bis 1: wie weit die Fliehkraft über dem liegt, was die Reifen halten (Klang)
       stoesse: 0,            // Zahl der Aufpralle an der Deko (Klang und Tests)
+      akku: KONST.AKKU_START, // 0 bis 1, lädt beim Bremsen und Rollen
+      turbo: 0,              // Sekunden Schub, die noch bleiben (0 heißt: aus)
+      turboPause: 0,         // Sekunden, bis wieder gezündet werden kann
+      turboTaste: false,     // Turbo-Eingabe im letzten Takt: gezündet wird nur beim Drücken, nicht beim Halten
+      zuendungen: 0,         // Zahl der Zündungen (Tests)
     };
   }
 
@@ -97,16 +115,40 @@
     const seg = strecke.segment(auto.z);
     const grund = untergrund(auto.x, strecke);
     auto.untergrund = grund;
+
+    // E-Turbo: zündet beim Drücken (nicht beim Halten), wenn der Akku reicht und die Pause nach dem letzten Schub um ist
+    const taste = !!eingabe.turbo;
+    if (taste && !auto.turboTaste && turboBereit(auto)) {
+      auto.turbo = K.TURBO_DAUER;
+      auto.zuendungen++;
+    }
+    auto.turboTaste = taste;
+    const turboAn = auto.turbo > 0;
+
     // Der Motor rechnet mit dem eigenen Höchsttempo, Fliehkraft und Lenkung mit dem echten Tempo
-    const hoechst = K.HOECHST * (auto.hoechstFaktor || 1);
+    const hoechst = K.HOECHST * (auto.hoechstFaktor || 1) * (turboAn ? K.TURBO_HOECHST : 1);
 
     // Längs: Schub, Bremse, Rollen, Hang, Untergrund
     const grasDeckel = K.GRAS_HOECHST * K.HOECHST;
     let a = 0;
-    const schub = K.BESCHLEUNIGUNG * (1 - (1 - K.SCHUB_REST) * Math.min(1, auto.tempo / hoechst));
+    const schub = K.BESCHLEUNIGUNG * (1 - (1 - K.SCHUB_REST) * Math.min(1, auto.tempo / hoechst)) * (turboAn ? K.TURBO_SCHUB : 1);
     if (gas > 0) a += gas * schub * (grund === "gras" ? K.GRAS_SCHUB : 1);
     else a -= grund === "gras" ? K.GRAS_ROLLEN : K.ROLLEN;
     a -= bremse * K.BREMSE;
+
+    // Rekuperation: Was Bremse und Rollen an Tempo abbauen, lädt den Akku (nicht im Gras, nicht im Stand, nicht im Schub)
+    if (turboAn) {
+      auto.akku = Math.max(0, auto.akku - K.TURBO_VERBRAUCH * dt);
+      auto.turbo -= dt;
+      if (auto.akku <= 0 || auto.turbo <= 1e-9) { auto.turbo = 0; auto.turboPause = K.TURBO_PAUSE; }
+    } else {
+      if (auto.turboPause > 0) auto.turboPause = Math.max(0, auto.turboPause - dt);
+      if (grund !== "gras" && auto.tempo > 0) {
+        const bremsAbbau = Math.min(auto.tempo, bremse * K.BREMSE * dt);
+        const rollAbbau = gas > 0 ? 0 : Math.min(auto.tempo - bremsAbbau, K.ROLLEN * dt);
+        auto.akku = Math.min(1, auto.akku + (K.REKU_BREMSE * bremsAbbau + K.REKU_ROLLEN * rollAbbau) / K.HOECHST);
+      }
+    }
     a -= K.HANG * (seg.y2 - seg.y1) / (seg.z2 - seg.z1);
     if (grund === "randstein") a -= K.RANDSTEIN_BREMSE;
     let neu = auto.tempo + a * dt;
@@ -117,7 +159,7 @@
     }
     // Über dem eigenen Höchsttempo (Windschatten vorbei) rollt das Auto langsam darauf zurück
     auto.tempo = Math.max(0, neu > hoechst ? Math.max(hoechst, Math.min(neu, auto.tempo) - K.ROLLEN * dt) : neu);
-    const anteil = auto.tempo / K.HOECHST;
+    const anteil = auto.tempo / K.BEZUG;
 
     // Quer: Lenkung gegen Fliehkraft
     auto.flieh = K.FLIEHKRAFT * seg.kurve * anteil * anteil;
@@ -180,7 +222,7 @@
   // Grenztempo (Anteil am Höchsttempo) einer Kurve: Lenkung hält gerade noch die Fliehkraft
   function grenzAnteil(kurve) {
     const k = Math.abs(kurve);
-    return k < 1e-6 ? Infinity : KONST.LENKUNG / (KONST.FLIEHKRAFT * k);
+    return k < 1e-6 ? Infinity : (KONST.LENKUNG / (KONST.FLIEHKRAFT * k)) * (KONST.BEZUG / KONST.HOECHST);
   }
 
   /*
@@ -188,15 +230,17 @@
    * Eine Kurve darf das Auto um BOT_BREITE nach außen tragen: Was die Lenkung nicht hält,
    * wandert während der Kurve zur Seite. Kurze Kurven vertragen also mehr Tempo als lange.
    * Aus (Fliehkraft · Tempo − Lenkung) · Kurvendauer ≤ Breite folgt für eine Kurve mit dem
-   * stärksten Wert k und der wirksamen Länge n (Summe |kurve| / k):
-   *   Anteil ≤ (LENKUNG + BREITE · HOECHST / (n · L)) / (FLIEHKRAFT · k)
+   * stärksten Wert k und der wirksamen Länge n (Summe |kurve| / k), Tempo als Anteil am BEZUG:
+   *   Anteil ≤ (LENKUNG + BREITE · BEZUG / (n · L)) / (FLIEHKRAFT · k)
+   * Gespeichert als Anteil am Höchsttempo, höchstens TURBO_HOECHST (Geraden: genau das). Unter 1 heißt:
+   * Diese Kurve verlangt Bremsen, auch ohne Turbo.
    */
   const grenzSpeicher = new WeakMap();
   function kurvenGrenzen(strecke) {
     if (grenzSpeicher.has(strecke)) return grenzSpeicher.get(strecke);
     const K = KONST, seg = strecke.segmente, n = seg.length;
     const L = seg[0].z2 - seg[0].z1;
-    const grenze = new Float64Array(n).fill(1);
+    const grenze = new Float64Array(n).fill(K.TURBO_HOECHST);
     const kurven = [];                  // zusammenhängende Kurven: { von, bis }
     const kurveBei = new Int32Array(n); // Nummer der Kurve, die hier liegt oder als nächste kommt
     const kurveIn = new Int32Array(n).fill(-1);
@@ -211,8 +255,8 @@
         j++;
       }
       const wirksam = summe / staerkste;
-      const anteil = (K.LENKUNG + (K.BOT_BREITE * K.HOECHST) / (wirksam * L)) / (K.FLIEHKRAFT * staerkste);
-      for (let k = i; k < j; k++) { grenze[k] = Math.min(1, anteil); kurveIn[k] = kurven.length; }
+      const anteil = ((K.LENKUNG + (K.BOT_BREITE * K.BEZUG) / (wirksam * L)) / (K.FLIEHKRAFT * staerkste)) * (K.BEZUG / K.HOECHST);
+      for (let k = i; k < j; k++) { grenze[k] = Math.min(K.TURBO_HOECHST, anteil); kurveIn[k] = kurven.length; }
       kurven.push({ von: i, bis: j });
       i = j;
     }
@@ -243,8 +287,11 @@
     const L = strecke.segmente[0].z2 - strecke.segmente[0].z1;
     const { grenze } = kurvenGrenzen(strecke);
     const v = auto.tempo;
-    const anteil = v / K.HOECHST;
+    const anteil = v / K.BEZUG;
     const verz = K.BOT_VERZOEGERUNG * (K.BREMSE + K.ROLLEN);
+    // Schneller will er auch auf der Geraden nicht; im Schub entsprechend mehr. Darüber geht er nur vom Gas,
+    // gebremst wird allein für Kurven (sonst bremste er nach jedem Schub und lüde den Akku damit wieder auf).
+    const deckel = Math.min(1, reserve) * K.HOECHST * (auto.turbo > 0 ? K.TURBO_HOECHST : 1);
 
     // Blick voraus: Bremsbedarf und Kurve für die Linie
     let bremsen = false, gasWeg = false;
@@ -252,16 +299,16 @@
     const reichweite = Math.ceil(((v * v) / (2 * verz)) / L) + 12;
     for (let n = 1; n <= reichweite; n++) {
       const seg = strecke.segment(auto.z + n * L);
-      const erlaubt = Math.min(1, grenze[seg.nr] * reserve) * K.HOECHST;
-      const weg = n * L - (((auto.z % L) + L) % L);
-      const moeglich = Math.sqrt(erlaubt * erlaubt + 2 * verz * Math.max(weg, 0));
-      if (v > moeglich) bremsen = true;
-      else if (v > moeglich * 0.985) gasWeg = true;
+      const kurve = grenze[seg.nr] * reserve * K.HOECHST;
+      const erlaubt = Math.min(deckel, kurve);
+      const weg = Math.max(n * L - (((auto.z % L) + L) % L), 0);
+      if (v > Math.sqrt(kurve * kurve + 2 * verz * weg)) bremsen = true;
+      else if (v > Math.sqrt(erlaubt * erlaubt + 2 * verz * weg) * 0.985) gasWeg = true;
       if (n <= 40) linienKurve += seg.kurve * (1 - n / 41);
     }
-    const hier = Math.min(1, grenze[strecke.segment(auto.z).nr] * reserve) * K.HOECHST;
-    if (v > hier * 1.03) bremsen = true;
-    else if (v > hier) gasWeg = true;
+    const hierKurve = grenze[strecke.segment(auto.z).nr] * reserve * K.HOECHST;
+    if (v > hierKurve * 1.03) bremsen = true;
+    else if (v > Math.min(deckel, hierKurve)) gasWeg = true;
     if (wunsch && wunsch.tempoDeckel != null) {
       if (v > wunsch.tempoDeckel + 150) bremsen = true;
       else if (v > wunsch.tempoDeckel) gasWeg = true;
@@ -285,10 +332,26 @@
     };
   }
 
+  // Freie Fahrt voraus (Welteinheiten, höchstens max): bis zur ersten Kurve, die langsamer als das Höchsttempo
+  // verlangt. Grundlage, um den Turbo auf einer Geraden zu zünden.
+  function freieStrecke(auto, strecke, max) {
+    const L = strecke.segmente[0].z2 - strecke.segmente[0].z1;
+    const { grenze } = kurvenGrenzen(strecke);
+    const n = Math.ceil(max / L);
+    for (let i = 0; i < n; i++) if (grenze[strecke.segment(auto.z + i * L).nr] < 1) return i * L;
+    return max;
+  }
+
+  // Bereit zum Zünden: kein Schub läuft, die Pause ist um, der Akku reicht und die Startlinie ist überfahren
+  // (für alle gleich, damit der Start ein Pulk bleibt)
+  function turboBereit(auto) {
+    return auto.turbo <= 0 && auto.turboPause <= 0 && auto.akku >= KONST.TURBO_MIN && auto.runde >= 1;
+  }
+
   // Tempo in km/h für die Anzeige
   function kmh(tempo) {
     return tempo * KONST.KMH;
   }
 
-  return { KONST, neuesAuto, schritt, takt, grenzAnteil, kurvenGrenzen, botEingabe, untergrund, kmh, begrenze };
+  return { KONST, neuesAuto, schritt, takt, grenzAnteil, kurvenGrenzen, botEingabe, freieStrecke, turboBereit, untergrund, kmh, begrenze };
 });

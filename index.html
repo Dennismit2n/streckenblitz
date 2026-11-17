@@ -177,6 +177,27 @@
   #platte-tempo .einheit { font: 500 calc(var(--hp) * 3.6)/1 var(--sb-schrift-schild); color: var(--sb-text-leise); margin-left: calc(var(--hp) * 1.2); }
   .balken { position: relative; height: calc(var(--hp) * 2.2); margin-top: calc(var(--hp) * 2); background: rgba(255, 255, 255, 0.05); border: 1px solid color-mix(in srgb, var(--sb-weissgold) 16%, transparent); overflow: hidden; }
   .balken > i { position: absolute; inset: 0; transform-origin: 0 50%; transform: scaleX(0); background: linear-gradient(90deg, #24585d, var(--sb-petrol) 70%, #9a8c62); }
+  /* Akku: ruhiger Balken in Blau, der Strich zeigt die Ladung, ab der der Turbo zündet; darunter ist er gedämpft */
+  #platte-tempo .akku-zeile { display: flex; align-items: center; gap: calc(var(--hp) * 2.2); margin-top: calc(var(--hp) * 1.8); }
+  #platte-tempo .akku-zeile .etikett { font-size: calc(var(--hp) * 3.4); }
+  .balken.akku { flex: 1; height: calc(var(--hp) * 1.6); margin-top: 0; }
+  .balken.akku > i { background: linear-gradient(90deg, #2b4a73, #5b85b5); transition: opacity 0.3s ease; }
+  .balken.akku.leer > i { opacity: 0.5; }
+  .balken.akku::after { content: ""; position: absolute; top: 0; bottom: 0; left: var(--schwelle, 25%); width: 1px; background: color-mix(in srgb, var(--sb-weissgold) 30%, transparent); }
+  /* Gezündet: gedämpfter blauer Schimmer an der Platte, blendet ruhig ein und aus (kein Blinken) */
+  #platte-tempo { isolation: isolate; }
+  #platte-tempo .schimmer {
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+    background: radial-gradient(130% 110% at 25% 100%, rgba(84, 136, 204, 0.26), transparent 72%);
+    box-shadow: inset 0 0 0 1px rgba(112, 158, 220, 0.42), 0 0 calc(var(--hp) * 4) rgba(64, 112, 190, 0.3);
+    pointer-events: none;
+  }
+  #platte-tempo.turbo .schimmer { opacity: 1; }
   #platte-bot { right: calc(var(--hp) * 6); bottom: calc(var(--hp) * 6); }
   /* Mit Finger: unten liegen die Bedienflächen, das Tempo rückt unter Platz und Runde */
   :root.beruehrung #platte-tempo { top: calc(var(--hp) * 24.5); bottom: auto; }
@@ -444,12 +465,14 @@
   }
   #touch-gas { right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); width: min(14vw, 118px); height: min(40vh, 160px); }
   #touch-bremse { right: calc(max(14px, env(safe-area-inset-right)) + min(14vw, 118px) + 12px); bottom: max(14px, env(safe-area-inset-bottom)); width: min(12vw, 100px); height: min(28vh, 112px); }
+  #touch-turbo { right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + min(40vh, 160px) + 12px); width: min(14vw, 118px); height: min(17vh, 64px); }
   #touch-pause { left: var(--sb-aussen); top: max(12px, env(safe-area-inset-top)); width: 46px; height: 46px; border-radius: 10px; }
   #touch-pause::before { border-radius: 7px; }
   @media (orientation: portrait) {
     #lenkzone { width: 46vw; height: 150px; }
     #touch-gas { width: 21vw; height: 176px; }
     #touch-bremse { right: calc(14px + 21vw + 10px); width: 19vw; height: 124px; }
+    #touch-turbo { right: calc(14px + 21vw + 10px); bottom: calc(14px + 124px + 12px); width: 19vw; height: 52px; }
     #touch-pause { left: auto; right: 14px; top: auto; bottom: calc(14px + 176px + 14px); }
     #platte-zeit .zeile { display: none; }
   }
@@ -564,6 +587,8 @@
   :root[data-vision="contrast"] :focus-visible { outline: 3px solid var(--sb-signal); outline-offset: 2px; }
   :root[data-vision="contrast"] .balken { background: var(--sb-grund); border-color: var(--sb-kante); }
   :root[data-vision="contrast"] .balken > i { background: var(--sb-text); }
+  :root[data-vision="contrast"] #platte-tempo .schimmer { background: none; box-shadow: inset 0 0 0 2px var(--sb-petrol); }
+  :root[data-vision="contrast"] .balken.akku::after { background: var(--sb-signal); width: 2px; }
   :root[data-vision="contrast"] .auswahl select { background: var(--sb-feld); border-color: var(--sb-kante); }
   :root[data-vision="contrast"] .ergebnis-tafel th { border-bottom-color: var(--sb-kante); }
   :root[data-vision="contrast"] .ergebnis-tafel tr.du td { background: transparent; color: var(--sb-text); font-weight: 700; }
@@ -609,7 +634,8 @@
       <div class="zeile"><span class="etikett" data-i="beste">Beste</span><span class="wert" id="beste"></span></div>
       <div class="zeile" id="zeile-rekord" hidden><span class="etikett" data-i="rekord">Rekord</span><span class="wert" id="rekord"></span></div>
     </div>
-    <div class="platte" id="platte-tempo"><span class="wert" id="tempo">0</span><span class="einheit" data-i="kmh">km/h</span><div class="balken"><i id="balken"></i></div></div>
+    <div class="platte" id="platte-tempo"><i class="schimmer" aria-hidden="true"></i><span class="wert" id="tempo">0</span><span class="einheit" data-i="kmh">km/h</span><div class="balken"><i id="balken"></i></div>
+      <div class="akku-zeile"><span class="etikett" data-i="akku">Akku</span><div class="balken akku" id="akku-balken"><i id="akku"></i></div></div></div>
     <div class="platte" id="platte-bot" hidden><span class="etikett" data-i="bot">Bot am Steuer</span></div>
     <div class="platte" id="ampel" hidden role="img" aria-label="Startampel" data-i-aria="aria_ampel"><i></i><i></i><i></i><i></i><i></i></div>
   </div>
@@ -704,6 +730,7 @@
   <div class="beruehr" id="lenkzone" role="group" aria-label="Lenken" data-i-aria="aria_lenkzone"><i class="rille"></i><i class="pfeil links" aria-hidden="true">‹</i><i class="pfeil rechts" aria-hidden="true">›</i><i id="lenk-knauf"></i></div>
   <button class="beruehr" type="button" id="touch-bremse" data-i="touch_bremse">Bremse</button>
   <button class="beruehr" type="button" id="touch-gas" data-i="touch_gas">Gas</button>
+  <button class="beruehr" type="button" id="touch-turbo" data-i="touch_turbo">Turbo</button>
   <button class="beruehr" type="button" id="touch-pause" aria-label="Pause" data-i-aria="pause"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M8.5 5.5v13M15.5 5.5v13" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></button>
 </div>
 
@@ -1008,7 +1035,7 @@
   // Fahren über die Lage der Tasten (e.code, W A S D auch auf AZERTY), Kürzel im Menü über die Beschriftung (e.key),
   // damit Z auch auf einer deutschen Tastatur das Zeitfahren wählt.
   const gedrueckt = new Set();
-  const TASTEN = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD", "Space"]);
+  const TASTEN = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD", "Space", "KeyE", "ShiftLeft", "ShiftRight"]);
   window.addEventListener("keydown", (e) => {
     const aufKnopf = document.activeElement && ["BUTTON", "SELECT"].includes(document.activeElement.tagName);
     if (e.code === "Escape" || e.code === "KeyP") {
@@ -1044,19 +1071,20 @@
       gas: t("ArrowUp", "KeyW") ? 1 : 0,
       bremse: t("ArrowDown", "KeyS") || gedrueckt.has("Space") ? 1 : 0,
       lenken: (t("ArrowRight", "KeyD") ? 1 : 0) - (t("ArrowLeft", "KeyA") ? 1 : 0),
+      turbo: t("KeyE", "ShiftLeft") || gedrueckt.has("ShiftRight"),
     };
   }
 
   // --- Gamepad (Gamepad-API, Standardbelegung) ---------------------------------------------
   // Linker Stick lenkt analog mit Totzone, Steuerkreuz digital. Rechter Trigger gibt Gas, linker bremst (beide analog),
-  // A gibt auch Gas, B bremst. Start: Pause, weiter, im Menü und nach dem Ziel los. Im Menü wechselt das Steuerkreuz
+  // A gibt auch Gas, B bremst, RB zündet den Turbo. Start: Pause, weiter, im Menü und nach dem Ziel los. Im Menü wechselt das Steuerkreuz
   // die Strecke und A startet, nach dem Ziel startet A neu und B führt ins Menü.
   const TOTZONE = 0.15;
-  const pad = { gas: 0, bremse: 0, lenken: 0, vorher: [] };
+  const pad = { gas: 0, bremse: 0, lenken: 0, turbo: false, vorher: [] };
   function padLesen() {
     let p = null;
     try { for (const g of (navigator.getGamepads ? navigator.getGamepads() : [])) if (g && g.connected) { p = g; break; } } catch { /* gesperrt */ }
-    if (!p) { pad.gas = pad.bremse = pad.lenken = 0; pad.vorher = []; return; }
+    if (!p) { pad.gas = pad.bremse = pad.lenken = 0; pad.turbo = false; pad.vorher = []; return; }
     const knopf = (i) => { const b = p.buttons[i]; return b ? (b.value || (b.pressed ? 1 : 0)) : 0; };
     const neu = (i) => !!(p.buttons[i] && p.buttons[i].pressed && !pad.vorher[i]);
     const ax = p.axes[0] || 0;
@@ -1064,6 +1092,7 @@
     pad.lenken = begrenze(stick + knopf(15) - knopf(14), -1, 1);
     pad.gas = Math.max(knopf(7), knopf(0));
     pad.bremse = Math.max(knopf(6), knopf(1));
+    pad.turbo = knopf(5) > 0.5;
     if (neu(9)) {
       if (zustand === "fahrt") pause(true);
       else if (zustand === "pause") pause(false);
@@ -1083,8 +1112,8 @@
 
   // --- Bedienflächen für Finger ---------------------------------------------------------------
   // Lenkzone: wo der Finger liegt, so stark wird gelenkt (Mitte gerade, 70 % der halben Breite voll), mit kleiner
-  // Totzone. Gas und Bremse wirken, solange ein Finger darauf liegt. Mehrere Finger gleichzeitig gehen.
-  const beruehrung = { gas: 0, bremse: 0, lenken: 0 };
+  // Totzone. Gas, Bremse und Turbo wirken, solange ein Finger darauf liegt. Mehrere Finger gleichzeitig gehen.
+  const beruehrung = { gas: 0, bremse: 0, lenken: 0, turbo: 0 };
   const lenkzone = el("lenkzone"), knauf = el("lenk-knauf");
   function lenkenAus(e) {
     const r = lenkzone.getBoundingClientRect();
@@ -1109,7 +1138,7 @@
     lenkzone.classList.remove("gedrueckt");
   }
   for (const art of ["pointerup", "pointercancel", "lostpointercapture"]) lenkzone.addEventListener(art, lenkLos);
-  for (const [id, wert] of [["touch-gas", "gas"], ["touch-bremse", "bremse"]]) {
+  for (const [id, wert] of [["touch-gas", "gas"], ["touch-bremse", "bremse"], ["touch-turbo", "turbo"]]) {
     const k = el(id), finger = new Set();
     k.addEventListener("pointerdown", (e) => {
       e.preventDefault();
@@ -1128,7 +1157,7 @@
   el("touch-pause").addEventListener("click", () => pause(true));
   el("touch").addEventListener("contextmenu", (e) => e.preventDefault());
   function beruehrungLoesen() {
-    beruehrung.gas = beruehrung.bremse = beruehrung.lenken = 0;
+    beruehrung.gas = beruehrung.bremse = beruehrung.lenken = beruehrung.turbo = 0;
     knauf.style.setProperty("--lenk", "0px");
     for (const k of el("touch").querySelectorAll(".gedrueckt")) k.classList.remove("gedrueckt");
   }
@@ -1145,18 +1174,21 @@
   }
   el("quer-trotzdem").addEventListener("click", () => { querTrotzdem = true; querPruefen(); groesse(); });
 
-  // Alle Eingaben zusammen: Gas und Bremse das Stärkste, Lenken die Summe
+  // Alle Eingaben zusammen: Gas und Bremse das Stärkste, Lenken die Summe, Turbo von irgendwo
   function eingabe() {
     const t = tastenEingabe();
     return {
       gas: Math.max(t.gas, pad.gas, beruehrung.gas),
       bremse: Math.max(t.bremse, pad.bremse, beruehrung.bremse),
       lenken: begrenze(t.lenken + pad.lenken + beruehrung.lenken, -1, 1),
+      turbo: !!(t.turbo || pad.turbo || beruehrung.turbo),
     };
   }
 
   // --- Anzeigen: laufende Zahlen nur alle 0,5 s, Rundenzeiten genau und dann stehend ----
-  const anzeige = { platz: el("platz"), runde: el("runde"), zeit: el("zeit"), letzte: el("letzte"), beste: el("beste"), rekord: el("rekord"), tempo: el("tempo"), balken: el("balken") };
+  const anzeige = { platz: el("platz"), runde: el("runde"), zeit: el("zeit"), letzte: el("letzte"), beste: el("beste"), rekord: el("rekord"), tempo: el("tempo"), balken: el("balken"),
+    akku: el("akku"), akkuBalken: el("akku-balken"), tempoPlatte: el("platte-tempo") };
+  anzeige.akkuBalken.style.setProperty("--schwelle", P.KONST.TURBO_MIN * 100 + "%");
   if (mitBot) el("platte-bot").hidden = false;
   // Zeitpunkt (performance.now) des letzten Zahlenwechsels; gemessen in echter Zeit, nicht im Takt der Bilder,
   // damit der Abstand auch dann nie unter 500 ms fällt, wenn ein Bild später ausgeführt wird als geplant
@@ -1212,6 +1244,11 @@
       el("ampel").classList.toggle("weg", rennen.zeit > ampelEnde + 1.2);
     }
     anzeige.balken.style.transform = "scaleX(" + Math.min(1, a.tempo / P.KONST.HOECHST).toFixed(3) + ")";
+    // Akku als Balken ohne Zahl; Turbo als Schimmer, der über CSS ruhig ein- und ausblendet
+    anzeige.akku.style.transform = "scaleX(" + a.akku.toFixed(3) + ")";
+    const leer = a.akku < P.KONST.TURBO_MIN, turbo = a.turbo > 0;
+    if (anzeige.akkuBalken.classList.contains("leer") !== leer) anzeige.akkuBalken.classList.toggle("leer", leer);
+    if (anzeige.tempoPlatte.classList.contains("turbo") !== turbo) anzeige.tempoPlatte.classList.toggle("turbo", turbo);
   }
 
   // --- Ergebnis ----------------------------------------------------------------------
@@ -1303,7 +1340,7 @@
       const dz = R.abstand(g, a, strecke.laenge);
       if (Math.abs(dz) < T.KONST.GEGNER_WEIT) gegner.push({ abstand: dz, quer: g.x - a.x, anteil: g.tempo / P.KONST.HOECHST });
     }
-    ton.aktualisiere({ aktiv, anteil: a.tempo / P.KONST.HOECHST, gas: gasZuletzt, rutschen: a.rutschen, stoesse: a.stoesse, gegner });
+    ton.aktualisiere({ aktiv, anteil: a.tempo / P.KONST.HOECHST, gas: gasZuletzt, rutschen: a.rutschen, stoesse: a.stoesse, turbo: a.turbo > 0, gegner });
   }
   function zwischen(i, anteil) {
     const a = rennen.autos[i], v = vorher[i];

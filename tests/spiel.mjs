@@ -15,6 +15,9 @@
 // Menüschriften, Hoher Kontrast und Farbenblind im Spielbild, Darstellung höchstens alle 1,5 s, Gamepad (untergeschoben),
 // Touch auf dem Handy quer, Hinweis hochkant. Fotos in <fotoordner>/m4: Menü, Einstellungen, Rennen, Pause, Ergebnis bei
 // 1440 × 900, 844 × 390 quer und 390 × 844 hochkant; Englisch und Japanisch; jede Sehhilfe mit Menü und Rennen.
+// E-Turbo (M5): Taste E zündet im Spiel, Schimmer an der Platte blendet ruhig ein und aus, Leuchtdichte springt nicht,
+// Zahlen weiter höchstens alle 0,5 s, Flimmern mit Turbo, Surren im OfflineAudioContext, Gamepad RB und Touch-Knopf.
+// Fotos in <fotoordner>/m5.
 // Ausgabe endet mit „SPIEL: BESTANDEN“ und Exit 0, sonst „SPIEL: DURCHGEFALLEN“ und Exit 1.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -100,7 +103,7 @@ async function bis(ausdruck, ms) {
   }
   return false;
 }
-const VK = { Escape: 27, KeyP: 80, KeyZ: 90, KeyR: 82, KeyT: 84, Enter: 13, Digit5: 53, ArrowRight: 39, ArrowLeft: 37 };
+const VK = { Escape: 27, KeyP: 80, KeyZ: 90, KeyR: 82, KeyT: 84, Enter: 13, Digit5: 53, ArrowRight: 39, ArrowLeft: 37, KeyW: 87, KeyE: 69 };
 async function taste(code) {
   const key = code === "Escape" ? "Escape" : code === "Enter" ? "Enter" : code.startsWith("Arrow") ? code : code.replace(/^Key|^Digit/, "").toLowerCase();
   await cdp("Input.dispatchKeyEvent", { type: "keyDown", code, key, windowsVirtualKeyCode: VK[code] });
@@ -201,11 +204,26 @@ try {
   pruefe(klang.reifenVorher < 0.0005 && klang.reifen > 0.005 && klang.reifen < klang.rms, "Rutschen fügt ein Reifenquietschen hinzu, leiser als der Motor (" + klang.reifen + ", vorher " + klang.reifenVorher + ")");
   const stille = await js(`(async () => {
     const ac = new OfflineAudioContext(1, 22050, 22050), k = Ton.klangBauen(ac);
-    k.setze({ aktiv: false, anteil: 0.8, gas: 1, rutschen: 1, stoesse: 0, gegner: [] }, 0);
+    k.setze({ aktiv: false, anteil: 0.8, gas: 1, rutschen: 1, stoesse: 0, turbo: true, gegner: [] }, 0);
     const d = (await ac.startRendering()).getChannelData(0);
     let m = 0; for (let i = 11025; i < d.length; i++) m = Math.max(m, Math.abs(d[i]));
     return m; })()`);
   pruefe(stille < 0.002, "nicht aktiv (Menü, Pause, Ziel): stumm (Spitze " + stille.toFixed(4) + ")");
+  // E-Turbo: dieselbe Fahrt mit und ohne Turbo ab 1 s bis 2,5 s; der Unterschied ist das Surren
+  const surren = await js(`(async () => {
+    const rate = 22050, sek = 4;
+    async function rendern(turbo) {
+      const ac = new OfflineAudioContext(1, rate * sek, rate), k = Ton.klangBauen(ac);
+      for (let i = 0; i <= sek * 60; i++) { const t = i / 60; k.setze({ aktiv: true, anteil: 0.9, gas: 1, rutschen: 0, stoesse: 0, turbo: turbo && t >= 1 && t < 2.5, gegner: [] }, t); }
+      return (await ac.startRendering()).getChannelData(0);
+    }
+    const ohne = await rendern(false), mit = await rendern(true);
+    const diff = (a, b) => { let q = 0; for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) q += (mit[i] - ohne[i]) ** 2; return +Math.sqrt(q / ((b - a) * rate)).toFixed(5); };
+    let m = 0; for (let i = rate; i < 3 * rate; i++) m += ohne[i] * ohne[i];
+    return { vorher: diff(0.5, 0.95), anfang: diff(1.0, 1.08), voll: diff(1.8, 2.4), danach: diff(3.5, 3.9), motor: +Math.sqrt(m / (2 * rate)).toFixed(4) }; })()`);
+  console.log("  Surren: " + JSON.stringify(surren));
+  pruefe(surren.vorher < 0.0005 && surren.voll > 0.003 && surren.voll < surren.motor * 0.5, "E-Turbo: leises Surren, deutlich leiser als der Motor (" + surren.voll + " gegen " + surren.motor + ")");
+  pruefe(surren.anfang < surren.voll * 0.6 && surren.danach < surren.voll * 0.1, "E-Turbo: Surren blendet weich ein (" + surren.anfang + " in den ersten 80 ms) und wieder aus (" + surren.danach + ")");
 
   console.log("Startampel");
   await laden("?bot=1&samen=3");
@@ -293,20 +311,23 @@ try {
   // und Laternen und die längste Gerade. Gemessen wird die mittlere relative Leuchtdichte des Spielbilds,
   // im Ganzen und in 4 × 3 Feldern. Fehler: eine Schwankung über 3 Hz mit Amplitude 0,01 oder mehr in einem Feld
   // (ein Zehntel der Schwelle für Blitze nach WCAG, die bei 0,1 liegt).
-  const MESSUNG = `(gr, st, startSeg) => {
+  const MESSUNG = `(gr, st, startSeg, turbo) => {
     const P = window.Physik, B = 427, H = 240, N = 120;
     const lin = new Float32Array(256);
     for (let i = 0; i < 256; i++) { const v = i / 255; lin[i] = v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
     const a = P.neuesAuto(startSeg * 200, 0);
     a.tempo = P.KONST.HOECHST;
+    a.akku = 1;
+    let tempoMax = 0;
     const reihen = Array.from({ length: 13 }, () => new Float64Array(N));
     const lese = document.createElement("canvas");
     lese.width = B; lese.height = H;
     const ctx = lese.getContext("2d", { willReadFrequently: true });
     let tempoMin = Infinity;
     for (let f = 0; f < N; f++) {
-      P.schritt(a, { gas: 1, bremse: 0, lenken: P.botEingabe(a, st, 1).lenken }, st);
+      P.schritt(a, { gas: 1, bremse: 0, lenken: P.botEingabe(a, st, 1).lenken, turbo: !!turbo && f === 0 }, st);
       tempoMin = Math.min(tempoMin, a.tempo);
+      tempoMax = Math.max(tempoMax, a.tempo);
       gr.zeichne({ z: a.z, x: a.x, lenk: a.lenk, untergrund: a.untergrund, gegner: [] });
       ctx.drawImage(gr.bild, 0, 0);
       const d = ctx.getImageData(0, 0, B, H).data;
@@ -347,7 +368,7 @@ try {
     let sprung = 0;
     for (let f = 1; f < N; f++) sprung = Math.max(sprung, Math.abs(reihen[12][f] - reihen[12][f - 1]));
     const ganz = hoch(reihen[12]);
-    return { kmh: Math.round(tempoMin * 0.026), mittel: +mittel(reihen[12]).toFixed(4), ganzAmp: +ganz.amp.toFixed(5), ganzHz: ganz.hz,
+    return { kmh: Math.round(tempoMin * 0.026), kmhMax: Math.round(tempoMax * 0.026), mittel: +mittel(reihen[12]).toFixed(4), ganzAmp: +ganz.amp.toFixed(5), ganzHz: ganz.hz,
       feldAmp: +schlimm.amp.toFixed(5), feldHz: schlimm.hz, feldMittel: +schlimm.mittel.toFixed(4), sprung: +sprung.toFixed(5) };
   }`;
   const flimmer = [];
@@ -364,6 +385,10 @@ try {
       console.log("  " + id + ", " + name + " ab Segment " + startSeg + ": " + JSON.stringify(m));
       pruefe(m.kmh >= 300 && m.feldAmp < 0.01 && m.ganzAmp < 0.01, id + ", " + name + ": bei " + m.kmh + " km/h kein Flimmern über 3 Hz (größte Schwankung in einem Feld " + m.feldAmp + " bei " + m.feldHz + " Hz, mittlere Leuchtdichte " + m.mittel + ")");
     }
+    // Dieselbe lange Gerade mit gezündetem Turbo (schneller, die Streifen wechseln öfter)
+    const mt = await js(`(${MESSUNG})(${SB}.grafik, ${SB}.strecke, ${stellen[1]}, true)`);
+    console.log("  " + id + ", lange Gerade mit Turbo: " + JSON.stringify(mt));
+    pruefe(mt.kmhMax >= 355 && mt.feldAmp < 0.01 && mt.ganzAmp < 0.01 && mt.sprung < 0.01, id + ", lange Gerade mit Turbo bis " + mt.kmhMax + " km/h: kein Flimmern über 3 Hz (" + mt.feldAmp + " bei " + mt.feldHz + " Hz), mittlere Leuchtdichte springt höchstens um " + mt.sprung);
   }
   // Gegenprobe: dieselbe Messung mit hart gestreiften Randsteinen muss anschlagen
   const gegen = await js(`(() => { const s = ${SB}.strecke;
@@ -391,6 +416,72 @@ try {
   await laden("?bot=1&start=1500");
   pruefe(await js(`${SB}.rennen.modus === "frei" && getComputedStyle(document.getElementById("ampel")).display === "none" && getComputedStyle(document.getElementById("block-platz")).display === "none"`), "freie Fahrt (?start): ohne Ampel und ohne Platz");
   pruefe(await js(`${SB}.rennen.spieler.tempo > 0`), "freie Fahrt beginnt sofort");
+
+  console.log("E-Turbo im Spiel");
+  // Freie Fahrt auf der langen Geraden von Möwenkap: W hält Gas, gelenkt wird über die Bot-Logik, dann E.
+  // Mitgeschrieben wird je Bild die Deckkraft des Schimmers, dazu Zahlenwechsel und Bildschirmfotos zur Leuchtdichte.
+  await laden("?modus=frei&strecke=moewenkap&start=1602");
+  await js(`(() => { const sb = ${SB}; (function f() { if (sb.zustand === "fahrt") sb.beruehrung.lenken = Physik.botEingabe(sb.auto, sb.strecke, 1).lenken; requestAnimationFrame(f); })(); return true; })()`);
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 });
+  await warte(3000);
+  const vorTurbo = await js(`[${SB}.auto.akku, ${SB}.auto.zuendungen, ${SB}.auto.tempo * 0.026]`);
+  await js(`(() => { const s = document.querySelector("#platte-tempo .schimmer"), t0 = performance.now(), log = [], zahl = { tempo: [], zeit: [] }, mo = [];
+    for (const id of Object.keys(zahl)) { const o = new MutationObserver(() => zahl[id].push(performance.now())); o.observe(document.getElementById(id), { childList: true, characterData: true, subtree: true }); mo.push(o); }
+    window.__turboLog = new Promise((fertig) => { (function f() { const t = performance.now() - t0; log.push([Math.round(t), +getComputedStyle(s).opacity, ${SB}.auto.akku, ${SB}.auto.turbo > 0]);
+      if (t < 4200) requestAnimationFrame(f); else { mo.forEach((o) => o.disconnect()); fertig({ log, zahl }); } })(); });
+    return true; })()`);
+  await warte(200);
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", code: "KeyE", key: "e", windowsVirtualKeyCode: 69 });
+  // Leuchtdichte: Platte (scharf) und ganzes Fenster (verkleinert) etwa alle 100 ms
+  const PLATTE = await js(`(() => { const r = document.getElementById("platte-tempo").getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height, scale: 1 }; })()`);
+  const LEUCHT = `async (b64) => { const img = new Image(); img.src = "data:image/png;base64," + b64; await img.decode();
+    const c = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }), x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(img, 0, 0); const d = x.getImageData(0, 0, c.width, c.height).data; let s = 0;
+    const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    for (let i = 0; i < d.length; i += 4) s += 0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]);
+    return s / (d.length / 4); }`;
+  const leucht = { platte: [], ganz: [] };
+  let turboFoto = false;
+  const tFoto0 = Date.now();
+  while (Date.now() - tFoto0 < 3600) {
+    const pl = await cdp("Page.captureScreenshot", { format: "png", clip: PLATTE });
+    const gz = await cdp("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 1440, height: 900, scale: 0.25 } });
+    leucht.platte.push(await js(`(${LEUCHT})("${pl.data}")`));
+    leucht.ganz.push(await js(`(${LEUCHT})("${gz.data}")`));
+    if (!turboFoto && Date.now() - tFoto0 > 900) {
+      turboFoto = true;
+      await fotoAls("m5/turbo-1440-de.png");
+      const z = await cdp("Page.captureScreenshot", { format: "png", clip: { x: PLATTE.x - 14, y: PLATTE.y - 14, width: PLATTE.width + 28, height: PLATTE.height + 28, scale: 3 } });
+      fs.writeFileSync(path.join(ziel, "m5/turbo-platte-1440-de.png"), Buffer.from(z.data, "base64"));
+      console.log("  Foto  " + path.join(ziel, "m5/turbo-platte-1440-de.png"));
+    }
+  }
+  await cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "KeyE", key: "e", windowsVirtualKeyCode: 69 });
+  const tlog = await js(`window.__turboLog`);
+  await cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 });
+  const nachTurbo = await js(`[${SB}.auto.akku, ${SB}.auto.zuendungen]`);
+  const op = tlog.log.map((z) => z[1]);
+  const anIdx = op.findIndex((o) => o > 0.02), vollIdx = op.findIndex((o) => o > 0.98);
+  const ausIdx = vollIdx >= 0 ? op.findIndex((o, i) => i > vollIdx && o < 0.98) : -1, wegIdx = ausIdx >= 0 ? op.findIndex((o, i) => i > ausIdx && o < 0.02) : -1;
+  // steilste Änderung je Sekunde, gemessen über Fenster von mindestens 100 ms (die Bilder kommen headless
+  // unregelmäßig und ihre Zeitstempel zittern, von Bild zu Bild wäre das Rauschen größer als die Rampe)
+  let schritt = 0;
+  for (let i = 0; i < op.length; i++) {
+    const j = tlog.log.findIndex((z, k) => k > i && z[0] - tlog.log[i][0] >= 100);
+    if (j > 0) schritt = Math.max(schritt, Math.abs(op[j] - op[i]) / ((tlog.log[j][0] - tlog.log[i][0]) / 1000));
+  }
+  const ein = anIdx >= 0 && vollIdx >= 0 ? tlog.log[vollIdx][0] - tlog.log[anIdx][0] : 0, aus = ausIdx >= 0 && wegIdx >= 0 ? tlog.log[wegIdx][0] - tlog.log[ausIdx][0] : 0;
+  const akkuSinkt = tlog.log.filter((z) => z[3]).map((z) => z[2]);
+  console.log("  Turbo: Akku " + vorTurbo[0].toFixed(2) + " auf " + nachTurbo[0].toFixed(2) + ", Zündungen " + vorTurbo[1] + " auf " + nachTurbo[1] + ", Schimmer ein " + ein + " ms, aus " + aus + " ms, steilste Änderung " + schritt.toFixed(2) + " je Sekunde");
+  pruefe(nachTurbo[1] === vorTurbo[1] + 1 && nachTurbo[0] < vorTurbo[0] - 0.2 && vorTurbo[2] > 150, "Taste E zündet den Turbo im Spiel, der Akku sinkt (" + vorTurbo[0].toFixed(2) + " auf " + nachTurbo[0].toFixed(2) + ")");
+  pruefe(akkuSinkt.length > 30 && akkuSinkt.every((v, i) => i === 0 || v <= akkuSinkt[i - 1]), "der Akku leert sich sichtbar und stetig, solange der Turbo läuft (" + akkuSinkt.length + " Bilder)");
+  pruefe(ein >= 300 && aus >= 300 && schritt <= 4, "Schimmer an der Platte blendet ruhig ein (" + ein + " ms) und aus (" + aus + " ms), kein Sprung (steilste Änderung " + schritt.toFixed(2) + " je Sekunde, Grenze 4: ein Sprung von 0 auf 1 wären unendlich viel)");
+  const stufe = (r) => { let m = 0; for (let i = 1; i < r.length; i++) m = Math.max(m, Math.abs(r[i] - r[i - 1])); return m; };
+  const spanne = (r) => Math.max(...r) - Math.min(...r);
+  console.log("  Leuchtdichte Platte " + leucht.platte.map((v) => v.toFixed(4)).join(" ") + " | ganz " + leucht.ganz.map((v) => v.toFixed(4)).join(" "));
+  pruefe(leucht.platte.length >= 8 && stufe(leucht.platte) < 0.02 && stufe(leucht.ganz) < 0.01 && spanne(leucht.ganz) < 0.02, "Leuchtdichte springt beim Zünden nicht: Platte höchstens " + stufe(leucht.platte).toFixed(4) + " je Messung, ganzes Bild " + stufe(leucht.ganz).toFixed(4) + " (Spanne " + spanne(leucht.ganz).toFixed(4) + ", Blitzschwelle 0,1)");
+  const takt = Object.entries(tlog.zahl).map(([id, t]) => { let min = Infinity; for (let i = 1; i < t.length; i++) min = Math.min(min, t[i] - t[i - 1]); return [id, t.length, Math.round(min)]; });
+  pruefe(takt.every(([, n, min]) => n >= 4 && min >= 499), "Zahlen wechseln auch im Turbo höchstens alle 0,5 s (" + takt.map(([id, n, min]) => id + " " + n + " Wechsel, kleinster Abstand " + min + " ms").join(", ") + ")");
 
   // ---------------------------------------------------------------------------------------------
   // Meilenstein 4, Hülle: PWA, Sprachen, Sehhilfen, Kontrast, Gamepad, Touch, Hochkant und die Fotomatrix
@@ -424,11 +515,11 @@ try {
     const sw = await js(`(async () => {
       const bereit = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 8000))]);
       const namen = await caches.keys();
-      const inhalt = namen.includes("streckenblitz-v1") ? (await (await caches.open("streckenblitz-v1")).keys()).length : 0;
+      const inhalt = namen.includes("streckenblitz-v2") ? (await (await caches.open("streckenblitz-v2")).keys()).length : 0;
       return { aktiv: !!(bereit && bereit.active), bereich: bereit ? bereit.scope : "", caches: namen, inhalt }; })()`);
     console.log("  Service Worker: " + JSON.stringify(sw));
     pruefe(sw.aktiv && /127\.0\.0\.1:8644\/$/.test(sw.bereich), "Service Worker registriert und aktiv (Bereich " + sw.bereich + ")");
-    pruefe(sw.caches.includes("streckenblitz-v1") && sw.inhalt >= 16, "Cache streckenblitz-v1 mit allen Dateien (" + sw.inhalt + " Einträge)");
+    pruefe(sw.caches.includes("streckenblitz-v2") && sw.inhalt >= 16, "Cache streckenblitz-v2 mit allen Dateien (" + sw.inhalt + " Einträge)");
     const mf = await js(`(async () => { const l = document.querySelector('link[rel="manifest"]'); const m = await (await fetch(l.href)).json();
       const icons = await Promise.all(m.icons.map(async (i) => (await fetch(i.src)).status));
       return { orientation: m.orientation, display: m.display, name: m.name, icons, start: m.start_url }; })()`);
@@ -541,6 +632,11 @@ try {
   await warte(600);
   const p2 = await js(`${SB}.auto.tempo * 0.026`);
   pruefe(p2 < p1[0] - 20, "Gamepad: linker Trigger bremst (" + p2.toFixed(0) + " km/h)");
+  const rb0 = await js(`${SB}.auto.zuendungen`);
+  await js(`(() => { __pad.buttons[5].value = 1; __pad.buttons[5].pressed = true; return true; })()`);
+  await warte(300);
+  await js(`(() => { __pad.buttons[5].value = 0; __pad.buttons[5].pressed = false; return true; })()`);
+  pruefe(await js(`${SB}.auto.zuendungen`) === rb0 + 1 && await js(`${SB}.auto.turbo > 0`), "Gamepad: RB zündet den Turbo");
   await js(`(() => { __pad.buttons[6].value = 0; __pad.buttons[6].pressed = false; __pad.buttons[9].pressed = true; return true; })()`);
   await warte(200);
   await js(`(() => { __pad.buttons[9].pressed = false; return true; })()`);
@@ -572,6 +668,14 @@ try {
   pruefe(tg > 60, "Touch: Gas halten beschleunigt (" + tg.toFixed(0) + " km/h nach 1,5 s)");
   pruefe(tl[0] > 0.6 && tl[1] > 0.2 && tl[2] === 1, "Touch: zweiter Finger rechts in der Lenkzone lenkt nach rechts (" + tl[0].toFixed(2) + "), Gas bleibt");
   pruefe(tw[0] === 0 && tw[1] === 0, "Touch: Finger weg, Gas und Lenkung los");
+  const tb = await mitte("touch-turbo"), tz0 = await js(`${SB}.auto.zuendungen`);
+  await cdp("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: gas[0], y: gas[1], id: 1 }, { x: tb[0], y: tb[1], id: 4 }] });
+  await warte(700);
+  const tzw = await js(`[${SB}.auto.zuendungen, ${SB}.auto.turbo > 0, document.getElementById("platte-tempo").classList.contains("turbo")]`);
+  await fotoAls("m5/turbo-844x390-de.png");
+  await cdp("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await warte(200);
+  pruefe(tzw[0] === tz0 + 1 && tzw[1] && tzw[2], "Touch: der Knopf Turbo rechts über dem Gas zündet, die Platte schimmert");
   const pz = await mitte("touch-pause");
   await cdp("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: pz[0], y: pz[1], id: 3 }] });
   await cdp("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });

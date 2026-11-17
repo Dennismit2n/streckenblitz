@@ -7,6 +7,7 @@
  *  - Reifen: gefiltertes Rauschen, lauter, je weiter die Fliehkraft über dem liegt, was die Reifen halten.
  *  - Aufprall an der Deko: kurzes, dumpfes Rauschen.
  *  - Gegner: bis zu drei nahe Autos mit eigenem, leisem Motor, nach Abstand leiser, links oder rechts.
+ *  - E-Turbo: leises Surren aus zwei Sinustönen, die mit dem Tempo etwas steigen, weich ein- und ausgeblendet.
  * Beim Start ist alles stumm. Der AudioContext entsteht erst nach einer Nutzergeste (an()).
  *
  * gangFuer und drehzahl sind reine Rechnungen und laufen auch unter Node (Tests).
@@ -30,6 +31,7 @@
     REIFEN: 0.1,
     STOSS: 0.22,
     GEGNER: 0.045, GEGNER_WEIT: 7000, GEGNER_STIMMEN: 3,
+    TURBO: 0.03, TURBO_HZ: 330, TURBO_HZ_TEMPO: 140, TURBO_WEICH: 0.12, // Surren: Lautstärke, Tonhöhe, Zeitkonstante in s
   });
 
   // Automatik: neuer Gang aus dem Tempo-Anteil (0..1) und dem bisherigen Gang, mit Abstand zwischen Hoch- und Runterschalten
@@ -99,7 +101,7 @@
 
   /*
    * Der ganze Klang auf einem AudioContext (auch OfflineAudioContext für Tests).
-   * setze(zustand, t): zustand = { aktiv, anteil, gas, rutschen, stoesse, gegner: [{ abstand, quer, anteil }] }
+   * setze(zustand, t): zustand = { aktiv, anteil, gas, rutschen, stoesse, turbo, gegner: [{ abstand, quer, anteil }] }
    */
   function klangBauen(ac) {
     const K = KONST;
@@ -125,6 +127,20 @@
     const reifen = quelle("bandpass", 1700, 3.5);
     const stoss = quelle("lowpass", 260, 0.8);
     const gegner = Array.from({ length: K.GEGNER_STIMMEN }, () => motorBauen(ac, gesamt));
+    // Surren des E-Turbos: Grundton und leise Oktave, über einen sanften Tiefpass
+    const surren = ac.createGain();
+    surren.gain.value = 0;
+    const surrFilter = ac.createBiquadFilter();
+    surrFilter.type = "lowpass";
+    surrFilter.frequency.value = 1400;
+    surrFilter.connect(surren).connect(gesamt);
+    const surrTon = ac.createOscillator(), surrOktave = ac.createOscillator(), gOktave = ac.createGain();
+    surrTon.type = surrOktave.type = "sine";
+    gOktave.gain.value = 0.3;
+    surrTon.connect(surrFilter);
+    surrOktave.connect(gOktave).connect(surrFilter);
+    surrTon.start();
+    surrOktave.start();
     let stoesse = null;
     return {
       setze(z, t) {
@@ -137,6 +153,10 @@
           stoss.gain.setTargetAtTime(0, t + 0.02, 0.09);
         }
         stoesse = z.stoesse || 0;
+        const surrHz = K.TURBO_HZ + K.TURBO_HZ_TEMPO * (z.anteil || 0);
+        surrTon.frequency.setTargetAtTime(surrHz, t, 0.1);
+        surrOktave.frequency.setTargetAtTime(surrHz * 2.01, t, 0.1);
+        surren.gain.setTargetAtTime(aktiv && z.turbo ? K.TURBO : 0, t, K.TURBO_WEICH);
         const nahe = (z.gegner || []).slice().sort((a, b) => Math.abs(a.abstand) - Math.abs(b.abstand));
         gegner.forEach((stimme, i) => {
           const g = nahe[i];
