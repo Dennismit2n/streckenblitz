@@ -1,0 +1,12 @@
+# Private Arbeitsnotizen
+_intern/
+
+# Rohbilder der Fotos
+docs/*.png
+fotos/
+
+node_modules/
+Thumbs.db
+desktop.ini
+*.log
+.claude/
