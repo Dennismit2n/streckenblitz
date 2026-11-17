@@ -12,6 +12,9 @@
  *  - Wechselstreifen (Randsteine, Gras, Asphalt) mit kleinem Helligkeitsunterschied, damit bei
  *    Tempo nichts flimmert.
  *  - Das eigene Auto ist ein Pixel-Sprite aus Code (drei Bilder: links, gerade, rechts).
+ *  - Gegner: dasselbe Auto in ihrer Farbe mit Startnummer auf dem Heckflügel, in festen Größenstufen
+ *    pixelgenau aus Code gezeichnet (keine verwaschene Skalierung), gegen Kuppen beschnitten,
+ *    hinter der Kamera nicht gezeichnet.
  *
  * Läuft nur im Browser (braucht Canvas), Fenstername window.Grafik.
  */
@@ -105,10 +108,39 @@
     licht: "#6e2727", lichtKern: "#93372f",
   };
 
-  // Zeichnet ein Auto in einen Canvas-Kontext. neigung: -1 links, 0 gerade, 1 rechts
-  function autoZeichnen(ctx, neigung) {
-    const F = AUTO_FARBEN;
-    const r = (x, y, b, h, f) => { ctx.fillStyle = f; ctx.fillRect(x, y, b, h); };
+  // Farben eines Gegners aus seiner Grundfarbe; Helm, Reifen und Gold bleiben wie beim eigenen Auto
+  function teamFarben(hex) {
+    const c = rgb(hex);
+    const ton = (f) => { const n = (1 << 24) | (Math.round(f[0]) << 16) | (Math.round(f[1]) << 8) | Math.round(f[2]); return "#" + n.toString(16).slice(1); };
+    return Object.assign({}, AUTO_FARBEN, {
+      karosse: hex,
+      karosseSchatten: ton(hell(c, 0.8)),
+      karosseHell: ton(mische(c, [224, 214, 196], 0.16)),
+      karosseDunkel: ton(hell(c, 0.6)),
+      karosseTief: ton(hell(c, 0.36)),
+    });
+  }
+
+  // Ziffern 3 × 5 für die Startnummern (Bit 2 ist links)
+  const ZIFFERN = [
+    [7, 5, 5, 5, 7], [2, 6, 2, 2, 7], [7, 1, 7, 4, 7], [7, 1, 3, 1, 7], [5, 5, 7, 1, 1],
+    [7, 4, 7, 1, 7], [7, 4, 7, 5, 7], [7, 1, 2, 2, 2], [7, 5, 7, 5, 7], [7, 5, 7, 1, 7],
+  ];
+  const NUMMER_FARBE = "#cbbd98", NUMMER_GRUND = "#121117";
+
+  /*
+   * Zeichnet ein Auto in einen Canvas-Kontext.
+   * neigung: -1 links, 0 gerade, 1 rechts; farben: Farbsatz; f: Größe (1 = 64 × 34 Pixel);
+   * nummer: Startnummer auf beiden Hälften des Heckflügels (ab Größe 0,7 lesbar, sonst weggelassen).
+   * Jedes Rechteck wird auf ganze Pixel der Zielgröße gerundet, so bleibt jede Größe pixelscharf.
+   */
+  function autoZeichnen(ctx, neigung, farben, f, nummer) {
+    const F = farben || AUTO_FARBEN;
+    const m = f || 1;
+    const r = (x, y, b, h, farbe) => {
+      const x0 = Math.round(x * m), y0 = Math.round(y * m), x1 = Math.round((x + b) * m), y1 = Math.round((y + h) * m);
+      if (x1 > x0 && y1 > y0) { ctx.fillStyle = farbe; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); }
+    };
     // Spiegelbild um die Mitte (Mitte zwischen Pixel 31 und 32)
     const rs = (x, y, b, h, f, versatz) => { r(x + versatz, y, b, h, f); r(AUTO_B - x - b + versatz, y, b, h, f); };
     const oben = neigung * 2;   // Flügel und Helm verschieben sich beim Einlenken am stärksten
@@ -168,11 +200,45 @@
     r(8 + oben, 5, 48, 1, F.kante);
     r(8 + oben, 8, 48, 2, F.karosseTief);
     r(8 + oben, 10, 48, 1, "#0b0a0e");
+
+    // Startnummer: dunkles Schild mit hellen Ziffern, Ziffernpixel ganzzahlig (3 × 5 bleibt immer lesbar).
+    // Groß links und rechts vom Helm, klein ein Schild mitten auf dem Flügel (verdeckt dann den Helm).
+    if (nummer != null && m >= 0.4) {
+      const k = Math.max(1, Math.floor(m + 0.8)); // Ziffernpixel: ab Größe 1,2 doppelt, ab 2,2 dreifach
+      const text = String(nummer);
+      const breit = text.length * 3 * k + (text.length - 1) * k;
+      const gross = m >= 0.75;
+      // klein: mindestens so breit wie der Helm (8 Einheiten plus Rand), oben bündig, damit nichts darüber hervorschaut
+      const schildB = gross ? breit + 2 * k : Math.max(breit + 2 * k, Math.round(10 * m)), schildH = 7 * k;
+      for (const mitte of gross ? [18, 46] : [32]) {
+        const sx = Math.round((mitte + oben) * m - schildB / 2);
+        const sy = gross ? Math.round(7.5 * m - schildH / 2) : 0;
+        ctx.fillStyle = NUMMER_GRUND;
+        ctx.fillRect(sx, sy, schildB, schildH);
+        ctx.fillStyle = NUMMER_FARBE;
+        for (let i = 0; i < text.length; i++) {
+          const muster = ZIFFERN[text.charCodeAt(i) - 48];
+          const zx = sx + Math.floor((schildB - breit) / 2) + i * 4 * k;
+          for (let zy = 0; zy < 5; zy++) for (let b = 0; b < 3; b++) {
+            if (muster[zy] & (4 >> b)) ctx.fillRect(zx + b * k, sy + k + zy * k, k, k);
+          }
+        }
+      }
+    }
   }
 
   // --- Zeichner ---------------------------------------------------------------
 
-  function erzeuge(strecke, neueLeinwand) {
+  // Größenstufen der Gegner: je 7 % größer, pixelgenau gezeichnet und beim Zeichnen nicht weiter skaliert
+  const STUFE_MIN = 0.16, STUFE_SCHRITT = 1.07, STUFE_ANZAHL = 46;
+  function stufeVon(f) {
+    return Math.max(0, Math.min(STUFE_ANZAHL - 1, Math.round(Math.log(f / STUFE_MIN) / Math.log(STUFE_SCHRITT))));
+  }
+
+  /*
+   * fahrer: Liste der Gegner mit { farbe, nummer } (Index = nr in ansicht.gegner)
+   */
+  function erzeuge(strecke, neueLeinwand, fahrer) {
     const bild = neueLeinwand(B, H);
     const ctx = bild.getContext("2d");
     const bilddaten = ctx.createImageData(B, H);
@@ -270,6 +336,22 @@
       return c;
     });
 
+    // Gegner-Bilder entstehen erst, wenn eine Größe gebraucht wird
+    const gegnerFarben = (fahrer || []).map((g) => teamFarben(g.farbe));
+    const gegnerSpeicher = new Map();
+    function gegnerBild(nr, neigung, stufe) {
+      const schluessel = nr * 1000 + stufe * 4 + neigung + 1;
+      let c = gegnerSpeicher.get(schluessel);
+      if (!c) {
+        const f = STUFE_MIN * Math.pow(STUFE_SCHRITT, stufe);
+        c = neueLeinwand(Math.max(1, Math.round(AUTO_B * f)), Math.max(1, Math.round(AUTO_H * f)));
+        autoZeichnen(c.getContext("2d"), neigung, gegnerFarben[nr], f, fahrer[nr].nummer);
+        c.f = f;
+        gegnerSpeicher.set(schluessel, c);
+      }
+      return c;
+    }
+
     // Eine Bildschirmzeile Straße füllen
     function zeile(y, cx, w, s, seg, stufe) {
       const o = y * B;
@@ -319,11 +401,15 @@
       }
     }
 
+    // Je Segment der Sicht: Querversatz am Anfang, Zuwachs und die erste schon belegte Zeile (für Sprites)
+    const segQuer = new Float64Array(SICHT), segDx = new Float64Array(SICHT), segFrei = new Float64Array(SICHT);
+
     /*
      * Ein Bild zeichnen.
-     * ansicht: { z, x, lenk, untergrund }
+     * ansicht: { z, x, lenk, untergrund, gegner }
      *   z, x       Stelle und Querlage des eigenen Autos
      *   lenk       Lenkeinschlag -1..1 (Bild des Autos)
+     *   gegner     [{ z, x, lenk, nr }] andere Autos (nr: Index in fahrer)
      */
     function zeichne(ansicht) {
       const laenge = strecke.laenge;
@@ -331,7 +417,19 @@
       const basis = strecke.segment(kamZ);
       const anteil = (kamZ - basis.z1) / L;
       const kamY = KAMERA_HOEHE + strecke.hoeheBei(ansicht.z);
-      const kamX = ansicht.x * strecke.breite;
+      // Die Kamera folgt der Straße: Der Querversatz der Kurven an der Stelle des Autos wird ausgeglichen.
+      // So steht das eigene Auto in der Bildmitte genau dort, wo die Physik es führt (wichtig neben Gegnern).
+      let querAuto = 0;
+      {
+        let q = 0, d = -basis.kurve * anteil;
+        const ziel = ABSTAND + anteil * L;
+        for (let n = 0; n * L < ziel; n++) {
+          querAuto = q + d * Math.min(1, (ziel - n * L) / L);
+          q += d;
+          d += strecke.segmente[(basis.nr + n) % strecke.anzahl].kurve;
+        }
+      }
+      const kamX = ansicht.x * strecke.breite + querAuto;
 
       // Himmel und Berge nach der Fahrtrichtung, darunter Dunst
       const drehung = (strecke.richtungBei(ansicht.z) / (2 * Math.PI)) * PANORAMA;
@@ -364,6 +462,9 @@
         const schleife = nr >= strecke.anzahl ? laenge : 0;
         const z1 = seg.z1 + schleife - kamZ, z2 = seg.z2 + schleife - kamZ;
         const qx1 = quer, qx2 = quer + dx;
+        segQuer[n] = quer;
+        segDx[n] = dx;
+        segFrei[n] = maxY;
         quer += dx;
         dx += seg.kurve;
         if (z1 <= TIEFE) continue;
@@ -385,8 +486,48 @@
       }
       ctx.putImageData(bilddaten, 0, 0);
 
-      // Eigenes Auto mit weichem Schatten nach links unten (wie der Beschlag der Werkstatt)
-      // Die Straße unter dem Auto liegt immer auf derselben Zeile: Maßstab dort 1 / KAMERA_HOEHE
+      // Autos von hinten nach vorn: Gegner und das eigene Auto in der Reihenfolge ihrer Tiefe
+      const liste = [];
+      for (const g of ansicht.gegner || []) {
+        const zr = (((g.z - kamZ) % laenge) + laenge) % laenge;
+        if (zr < ABSTAND * 0.3 || zr > (SICHT - 2) * L) continue; // hinter oder unter der Kamera, oder zu weit weg
+        liste.push({ zr, g });
+      }
+      liste.push({ zr: ABSTAND, g: null });
+      liste.sort((a, b) => b.zr - a.zr);
+      for (const { zr, g } of liste) {
+        if (g) gegnerZeichnen(g, zr, anteil, kamX, kamY);
+        else eigenesAuto(ansicht);
+      }
+    }
+
+    function gegnerZeichnen(g, zr, anteil, kamX, kamY) {
+      const pos = zr / L + anteil;
+      const n = Math.floor(pos), t = pos - n;
+      const s = TIEFE / zr;
+      const quer = segQuer[n] + segDx[n] * t;
+      const y = HORIZONT + s * (kamY - strecke.hoeheBei(g.z)) * (H / 2);
+      const x = B / 2 + s * (quer + g.x * strecke.breite - kamX) * (B / 2);
+      const frei = Math.min(H, segFrei[n]); // Zeilen ab hier gehören schon näherer Straße (Kuppe)
+      const bild = gegnerBild(g.nr, g.lenk < -0.3 ? -1 : g.lenk > 0.3 ? 1 : 0, stufeVon(s * KAMERA_HOEHE));
+      const f = bild.f;
+      const unten = Math.round(y + 2 * f);
+      if (unten - bild.height >= frei) return; // ganz hinter der Kuppe
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, B, frei);
+      ctx.clip();
+      ctx.fillStyle = "rgba(4, 3, 10, 0.34)";
+      ctx.beginPath();
+      ctx.ellipse(Math.round(x) - 3 * f, unten - f, (AUTO_B / 2 + 3) * f, Math.max(1, 4 * f), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.drawImage(bild, Math.round(x - bild.width / 2), unten - bild.height);
+      ctx.restore();
+    }
+
+    // Eigenes Auto mit weichem Schatten nach links unten (wie der Beschlag der Werkstatt)
+    // Die Straße unter dem Auto liegt immer auf derselben Zeile: Maßstab dort 1 / KAMERA_HOEHE
+    function eigenesAuto(ansicht) {
       const autoY = HORIZONT + H / 2 - AUTO_H + 2;
       const ruettel = ansicht.untergrund === "randstein" && Math.floor(ansicht.z / (L * 2)) % 2 ? 1 : 0;
       const ax = Math.round(B / 2 - AUTO_B / 2), ay = autoY - ruettel;
@@ -404,8 +545,8 @@
       ctx.drawImage(sprites[bildNr], ax, ay);
     }
 
-    return { bild, zeichne, sprites };
+    return { bild, zeichne, sprites, gegnerBild };
   }
 
-  return { B, H, HORIZONT, KAMERA_HOEHE, TIEFE, ABSTAND, SICHT, erzeuge, autoZeichnen, AUTO_B, AUTO_H, rgb, mische };
+  return { B, H, HORIZONT, KAMERA_HOEHE, TIEFE, ABSTAND, SICHT, erzeuge, autoZeichnen, teamFarben, AUTO_B, AUTO_H, rgb, mische };
 });

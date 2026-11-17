@@ -1,8 +1,9 @@
 // Bildschirmfotos und Bildrate für Streckenblitz über Edge headless und das DevTools-Protokoll (Muster Kugelblitz).
 //   node werkzeuge/foto.mjs <zielordner> [szene ...]
-//   Szenen: fahrt (Bot fährt los, Fotos nach einigen Sekunden), stellen (Fotos an festen Stellen der Strecke),
+//   Szenen: fahrt (Menü, dann Bot allein in freier Fahrt, Fotos nach einigen Sekunden), stellen (Fotos an festen Stellen der Strecke),
 //           bedienung (Tasten, Takt der Zahlen, Rundenanzeige),
-//           fps (Bildrate über requestAnimationFrame, 8 s lang, Bot am Steuer)
+//           fps (Bildrate über requestAnimationFrame, 8 s lang, Bot am Steuer im Rennen mit 8 Autos)
+//   Rennen, Startampel und Ergebnis prüft und fotografiert tests/spiel.mjs.
 //   Vorgabe ohne Szenen: alle vier. Größe 1440 × 900.
 //   OHNE_GPU=1: Edge ohne Grafikbeschleunigung starten (zum Vergleich der Bildrate).
 //   BASIS=…: andere Adresse als die Vorschau auf Port 8644.
@@ -99,9 +100,8 @@ try {
 
   if (szenen.includes("fahrt")) {
     await laden(BASIS);
-    await foto("stand-1440" + endung + ".png");
-    console.log("Stand:", await js(zustand));
-    await laden(BASIS + "?bot=1");
+    await foto("menue-1440" + endung + ".png");
+    await laden(BASIS + "?bot=1&modus=frei");
     for (const s of [4, 9, 15]) {
       await warte(s === 4 ? 4000 : s === 9 ? 5000 : 6000);
       console.log("nach", s, "s:", await js(zustand));
@@ -136,7 +136,7 @@ try {
     const wert = (ausdruck) => js(`(() => { const a = window.streckenblitz.auto; return ${ausdruck}; })()`);
     const e = [];
     for (const [gas, bremse, rechts, links] of [["KeyW", "KeyS", "KeyD", "KeyA"], ["ArrowUp", "Space", "ArrowRight", "ArrowLeft"], ["ArrowUp", "ArrowDown", "ArrowRight", "ArrowLeft"]]) {
-      await laden(BASIS);
+      await laden(BASIS + "?modus=frei");
       await taste(gas, "keyDown"); await warte(2000);
       const t1 = await wert("a.tempo * 0.026");
       await taste(rechts, "keyDown"); await warte(250);
@@ -149,10 +149,11 @@ try {
       e.push(`${gas}: ${t1.toFixed(0)} km/h nach 2 s, ${rechts} lenkt ${l1.toFixed(2)}, ${links} lenkt ${l2.toFixed(2)}, ${bremse} bremst auf ${t2.toFixed(0)} km/h`);
     }
     console.log("Tasten:\n  " + e.join("\n  "));
-    // Takt der Zahlen: Wechsel der Texte von Zeit und Tempo 8 s lang mitschreiben, kleinster Abstand muss 0,5 s sein
-    await laden(BASIS + "?bot=1");
+    // Takt der Zahlen: Wechsel der Texte von Zeit, Tempo und Platz 8 s lang mitschreiben, kleinster Abstand muss 0,5 s sein
+    await laden(BASIS + "?bot=1&samen=2");
+    await warte(5500); // Startampel abwarten
     const takt = await js(`(async () => {
-      const zeiten = { zeit: [], tempo: [] }, mo = [];
+      const zeiten = { zeit: [], tempo: [], platz: [] }, mo = [];
       for (const id of Object.keys(zeiten)) { const o = new MutationObserver(() => zeiten[id].push(performance.now())); o.observe(document.getElementById(id), { childList: true, characterData: true, subtree: true }); mo.push(o); }
       await new Promise((r) => setTimeout(r, 8000));
       mo.forEach((o) => o.disconnect());
@@ -171,8 +172,8 @@ try {
   }
 
   if (szenen.includes("fps")) {
-    await laden(BASIS + "?bot=1");
-    await warte(1500);
+    await laden(BASIS + "?bot=1&samen=2");
+    await warte(7000); // Startampel abwarten, gemessen wird mit dem fahrenden Feld
     const m = await js(`(async () => {
       const zeiten = []; let letzt = performance.now(); const t0 = letzt;
       await new Promise((res) => { const f = (t) => { zeiten.push(t - letzt); letzt = t; if (t - t0 < 8000) requestAnimationFrame(f); else res(); }; requestAnimationFrame(f); });

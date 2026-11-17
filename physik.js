@@ -41,6 +41,9 @@
     GRAS_HOECHST: 0.34,      // Anteil des Höchsttempos, mehr geht auf dem Gras nicht
     GRAS_SCHUB: 0.45,        // Anteil des Schubs auf dem Gras
     RAND_AUSSEN: 2.3,        // weiter als so kommt das Auto nicht von der Mitte weg
+    BOT_VERZOEGERUNG: 0.85,  // der Bot plant mit diesem Anteil der echten Verzögerung (Bremse plus Rollen)
+    BOT_BREITE: 1.0,         // so viel Fahrbahn (halbe Breiten) darf eine Kurve den Bot nach außen tragen
+    KURVE_AB: 0.05,          // ab diesem Kurvenwert zählt ein Segment zu einer Kurve
   });
 
   function begrenze(w, min, max) {
@@ -52,7 +55,8 @@
     return {
       z: z || 0, x: x || 0, tempo: 0, lenk: 0,
       zeit: 0,               // gefahrene Zeit seit dem Start
-      runde: 1,              // laufende Runde
+      runde: 1,              // laufende Runde; 0 heißt: steht in der Startaufstellung vor der Linie
+      hoechstFaktor: 1,      // Motor: Faktor auf das Höchsttempo (Können, Windschatten, Gummiband)
       rundenStart: 0,        // Zeit beim Beginn der laufenden Runde
       letzte: null,          // letzte Rundenzeit in Sekunden
       beste: null,
@@ -84,12 +88,13 @@
     const seg = strecke.segment(auto.z);
     const grund = untergrund(auto.x, strecke);
     auto.untergrund = grund;
-    let anteil = auto.tempo / K.HOECHST;
+    // Der Motor rechnet mit dem eigenen Höchsttempo, Fliehkraft und Lenkung mit dem echten Tempo
+    const hoechst = K.HOECHST * (auto.hoechstFaktor || 1);
 
     // Längs: Schub, Bremse, Rollen, Hang, Untergrund
     const grasDeckel = K.GRAS_HOECHST * K.HOECHST;
     let a = 0;
-    const schub = K.BESCHLEUNIGUNG * (1 - (1 - K.SCHUB_REST) * anteil);
+    const schub = K.BESCHLEUNIGUNG * (1 - (1 - K.SCHUB_REST) * Math.min(1, auto.tempo / hoechst));
     if (gas > 0) a += gas * schub * (grund === "gras" ? K.GRAS_SCHUB : 1);
     else a -= grund === "gras" ? K.GRAS_ROLLEN : K.ROLLEN;
     a -= bremse * K.BREMSE;
@@ -101,8 +106,9 @@
       if (auto.tempo > grasDeckel) neu = Math.max(Math.min(neu, auto.tempo) - K.GRAS_BREMSE * dt, grasDeckel);
       else neu = Math.min(neu, grasDeckel);
     }
-    auto.tempo = begrenze(neu, 0, K.HOECHST);
-    anteil = auto.tempo / K.HOECHST;
+    // Über dem eigenen Höchsttempo (Windschatten vorbei) rollt das Auto langsam darauf zurück
+    auto.tempo = Math.max(0, neu > hoechst ? Math.max(hoechst, Math.min(neu, auto.tempo) - K.ROLLEN * dt) : neu);
+    const anteil = auto.tempo / K.HOECHST;
 
     // Quer: Lenkung gegen Fliehkraft
     auto.flieh = K.FLIEHKRAFT * seg.kurve * anteil * anteil;
@@ -120,10 +126,13 @@
       // Bruchteil des Takts bis zur Linie, damit die Rundenzeit nicht auf 1/60 s gerundet ist
       const bruch = auto.tempo > 0 ? (strecke.laenge - vorher) / (auto.tempo * dt) : 1;
       const linie = auto.zeit + bruch * dt;
-      const zeit = linie - auto.rundenStart;
-      auto.rundenZeiten.push(zeit);
-      auto.letzte = zeit;
-      if (auto.beste == null || zeit < auto.beste) auto.beste = zeit;
+      // Aus der Startaufstellung (Runde 0) beginnt mit der Linie erst die erste Runde
+      if (auto.runde > 0) {
+        const zeit = linie - auto.rundenStart;
+        auto.rundenZeiten.push(zeit);
+        auto.letzte = zeit;
+        if (auto.beste == null || zeit < auto.beste) auto.beste = zeit;
+      }
       auto.rundenStart = linie;
       auto.runde++;
     }
@@ -148,36 +157,95 @@
   }
 
   /*
-   * Bot: fährt wie ein vorsichtiger, aber flotter Spieler.
-   *  - Linie: leicht zur Kurveninnenseite der nächsten Kurve, auf Geraden zurück zur Mitte.
-   *  - Lenkung: Vorsteuerung gegen die Fliehkraft plus Regler auf die Linie.
-   *  - Bremsen: Für jedes Segment voraus wird das dort erlaubte Tempo (Grenztempo mit Reserve)
-   *    mit dem Bremsweg verglichen. Liegt das Tempo über dem, was sich bis dort abbremsen lässt, bremst er.
-   * vorsicht: Reserve auf das Grenztempo (0,9 heißt 90 % davon).
+   * Kurvengrenzen je Segment (Anteil am Höchsttempo), einmal je Strecke berechnet.
+   * Eine Kurve darf das Auto um BOT_BREITE nach außen tragen: Was die Lenkung nicht hält,
+   * wandert während der Kurve zur Seite. Kurze Kurven vertragen also mehr Tempo als lange.
+   * Aus (Fliehkraft · Tempo − Lenkung) · Kurvendauer ≤ Breite folgt für eine Kurve mit dem
+   * stärksten Wert k und der wirksamen Länge n (Summe |kurve| / k):
+   *   Anteil ≤ (LENKUNG + BREITE · HOECHST / (n · L)) / (FLIEHKRAFT · k)
    */
-  function botEingabe(auto, strecke, vorsicht) {
+  const grenzSpeicher = new WeakMap();
+  function kurvenGrenzen(strecke) {
+    if (grenzSpeicher.has(strecke)) return grenzSpeicher.get(strecke);
+    const K = KONST, seg = strecke.segmente, n = seg.length;
+    const L = seg[0].z2 - seg[0].z1;
+    const grenze = new Float64Array(n).fill(1);
+    const kurven = [];                  // zusammenhängende Kurven: { von, bis }
+    const kurveBei = new Int32Array(n); // Nummer der Kurve, die hier liegt oder als nächste kommt
+    const kurveIn = new Int32Array(n).fill(-1);
+    let i = 0;
+    while (i < n) {
+      if (Math.abs(seg[i].kurve) <= K.KURVE_AB) { i++; continue; }
+      const vz = Math.sign(seg[i].kurve);
+      let j = i, summe = 0, staerkste = 0;
+      while (j < n && Math.abs(seg[j].kurve) > K.KURVE_AB && Math.sign(seg[j].kurve) === vz) {
+        summe += Math.abs(seg[j].kurve);
+        staerkste = Math.max(staerkste, Math.abs(seg[j].kurve));
+        j++;
+      }
+      const wirksam = summe / staerkste;
+      const anteil = (K.LENKUNG + (K.BOT_BREITE * K.HOECHST) / (wirksam * L)) / (K.FLIEHKRAFT * staerkste);
+      for (let k = i; k < j; k++) { grenze[k] = Math.min(1, anteil); kurveIn[k] = kurven.length; }
+      kurven.push({ von: i, bis: j });
+      i = j;
+    }
+    // rückwärts über zwei Runden: so finden auch die Segmente nach der letzten Kurve die erste der nächsten Runde
+    let naechste = -1;
+    for (let k = 2 * n - 1; k >= 0; k--) {
+      if (kurveIn[k % n] >= 0) naechste = kurveIn[k % n];
+      if (k < n) kurveBei[k] = naechste;
+    }
+    const daten = { grenze, kurven, kurveBei };
+    grenzSpeicher.set(strecke, daten);
+    return daten;
+  }
+
+  /*
+   * Bot: fährt wie ein flotter Spieler. Grundlage auch für die Gegner (rennen.js).
+   *  - Linie: zur Innenseite der nächsten Kurve, auf Geraden zurück zur Mitte.
+   *  - Lenkung: Vorsteuerung gegen die Fliehkraft plus Regler auf die Linie.
+   *  - Bremsen: Für jedes Segment voraus wird das dort erlaubte Tempo (Kurvengrenze mal Reserve)
+   *    mit dem Bremsweg verglichen. Liegt das Tempo über dem, was sich bis dort abbremsen lässt, bremst er.
+   * vorsicht: Reserve auf die Kurvengrenze (0,9 heißt 90 % davon).
+   * wunsch (frei): { zielX } ersetzt die Linie (Ausweichen, Überholen),
+   *                { tempoDeckel } schneller will er gerade nicht (hinter einem Gegner bleiben).
+   */
+  function botEingabe(auto, strecke, vorsicht, wunsch) {
     const K = KONST;
     const reserve = vorsicht || 0.9;
     const L = strecke.segmente[0].z2 - strecke.segmente[0].z1;
+    const { grenze } = kurvenGrenzen(strecke);
     const v = auto.tempo;
     const anteil = v / K.HOECHST;
+    const verz = K.BOT_VERZOEGERUNG * (K.BREMSE + K.ROLLEN);
 
     // Blick voraus: Bremsbedarf und Kurve für die Linie
     let bremsen = false, gasWeg = false;
     let linienKurve = 0;
-    const reichweite = Math.ceil(((v * v) / (2 * K.BREMSE * 0.75)) / L) + 12;
+    const reichweite = Math.ceil(((v * v) / (2 * verz)) / L) + 12;
     for (let n = 1; n <= reichweite; n++) {
       const seg = strecke.segment(auto.z + n * L);
-      const erlaubt = Math.min(1, grenzAnteil(seg.kurve) * reserve) * K.HOECHST;
-      const weg = n * L - (auto.z % L);
-      const moeglich = Math.sqrt(erlaubt * erlaubt + 2 * K.BREMSE * 0.75 * Math.max(weg, 0));
+      const erlaubt = Math.min(1, grenze[seg.nr] * reserve) * K.HOECHST;
+      const weg = n * L - (((auto.z % L) + L) % L);
+      const moeglich = Math.sqrt(erlaubt * erlaubt + 2 * verz * Math.max(weg, 0));
       if (v > moeglich) bremsen = true;
       else if (v > moeglich * 0.985) gasWeg = true;
       if (n <= 40) linienKurve += seg.kurve * (1 - n / 41);
     }
+    const hier = Math.min(1, grenze[strecke.segment(auto.z).nr] * reserve) * K.HOECHST;
+    if (v > hier * 1.03) bremsen = true;
+    else if (v > hier) gasWeg = true;
+    if (wunsch && wunsch.tempoDeckel != null) {
+      if (v > wunsch.tempoDeckel + 150) bremsen = true;
+      else if (v > wunsch.tempoDeckel) gasWeg = true;
+    }
 
     const seg = strecke.segment(auto.z);
-    const zielX = begrenze(linienKurve * 0.06, -0.55, 0.55);
+    let zielX = wunsch && wunsch.zielX != null ? wunsch.zielX : begrenze(linienKurve * 0.06, -0.55, 0.55);
+    if (wunsch && wunsch.xMin != null && wunsch.xMax != null) {
+      // eingeklemmt zwischen zwei Autos: in die Mitte der Lücke
+      zielX = wunsch.xMin > wunsch.xMax ? (wunsch.xMin + wunsch.xMax) / 2 : begrenze(zielX, wunsch.xMin, wunsch.xMax);
+    }
     // Vorsteuerung: so viel Einschlag, wie die Fliehkraft gerade verlangt
     const vor = anteil > 0.05 ? (K.FLIEHKRAFT * seg.kurve * anteil) / K.LENKUNG : 0;
     const regler = (zielX - auto.x) * 2.2 - (auto.lenk - vor) * 0.3;
@@ -195,5 +263,5 @@
     return tempo * KONST.KMH;
   }
 
-  return { KONST, neuesAuto, schritt, takt, grenzAnteil, botEingabe, untergrund, kmh, begrenze };
+  return { KONST, neuesAuto, schritt, takt, grenzAnteil, kurvenGrenzen, botEingabe, untergrund, kmh, begrenze };
 });

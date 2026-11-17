@@ -53,8 +53,9 @@
   #leinwand { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 
   /* Anzeigen über dem Spielbild: scharf, kleine Beschlag-Platten, Zahlen in ruhigem Takt */
-  #hud { position: absolute; inset: 0; pointer-events: none; font-family: var(--font-schild); }
-  .platte {
+  #hud { position: absolute; inset: 0; pointer-events: none; font-family: var(--font-schild); transition: opacity 0.3s ease; }
+  #hud.leise { opacity: 0; }
+  .platte, .tafel {
     position: absolute;
     padding: calc(var(--gp) * 2.6) calc(var(--gp) * 4.4) calc(var(--gp) * 2.4);
     background: var(--platte);
@@ -62,7 +63,7 @@
     border-radius: calc(var(--gp) * 1.4);
     box-shadow: calc(var(--gp) * -1.2) calc(var(--gp) * 1.4) calc(var(--gp) * 3) rgba(0, 0, 0, 0.45);
   }
-  .platte::before {
+  .platte::before, .tafel::before, .knopf::before {
     content: "";
     position: absolute;
     inset: calc(var(--gp) * 0.8);
@@ -73,13 +74,16 @@
       var(--schraube-3) left 1px bottom 1px / calc(var(--gp) * 1.6) calc(var(--gp) * 1.6) no-repeat,
       var(--schraube-4) right 1px bottom 1px / calc(var(--gp) * 1.6) calc(var(--gp) * 1.6) no-repeat;
     opacity: 0.8;
+    pointer-events: none;
   }
+  .platte[hidden], .tafel[hidden] { display: none; }
   .etikett { display: block; font: 500 calc(var(--gp) * 3.6)/1.1 var(--font-schild); color: var(--text-leise); letter-spacing: 0.02em; }
   .wert { display: block; font: 600 calc(var(--gp) * 7)/1.05 var(--font-schild); color: var(--text); font-variant-numeric: tabular-nums lining-nums; }
-  .klein { font-size: calc(var(--gp) * 4.6); }
-  #platte-runde { left: calc(var(--gp) * 6); top: calc(var(--gp) * 6); }
+  #platte-stand { left: calc(var(--gp) * 6); top: calc(var(--gp) * 6); display: flex; gap: calc(var(--gp) * 5); }
+  #platte-stand > div[hidden] { display: none; }
   #platte-zeit { right: calc(var(--gp) * 6); top: calc(var(--gp) * 6); text-align: right; min-width: calc(var(--gp) * 62); }
   #platte-zeit .zeile { display: flex; justify-content: space-between; align-items: baseline; gap: calc(var(--gp) * 4); margin-top: calc(var(--gp) * 1.2); }
+  #platte-zeit .zeile[hidden] { display: none; }
   #platte-zeit .zeile .etikett { font-size: calc(var(--gp) * 3.4); }
   #platte-zeit .zeile .wert { font-size: calc(var(--gp) * 4.4); color: var(--text-leise); }
   #platte-zeit .zeile .wert.bestzeit { color: color-mix(in srgb, var(--weissgold) 72%, var(--text-leise)); }
@@ -88,8 +92,86 @@
   #platte-tempo .einheit { font: 500 calc(var(--gp) * 3.6)/1 var(--font-schild); color: var(--text-leise); margin-left: calc(var(--gp) * 1.2); }
   .balken { position: relative; height: calc(var(--gp) * 2.2); margin-top: calc(var(--gp) * 2); background: rgba(255, 255, 255, 0.05); border: 1px solid color-mix(in srgb, var(--weissgold) 16%, transparent); overflow: hidden; }
   .balken > i { position: absolute; inset: 0; transform-origin: 0 50%; transform: scaleX(0); background: linear-gradient(90deg, #24585d, var(--petrol) 70%, #9a8c62); }
-  #platte-bot { left: 50%; top: calc(var(--gp) * 6); transform: translateX(-50%); }
-  #platte-bot[hidden] { display: none; }
+  #platte-bot { right: calc(var(--gp) * 6); bottom: calc(var(--gp) * 6); }
+
+  /* Startampel: fünf Lichter, gehen nacheinander an und zusammen aus. Gedämpftes Rot, kein Leuchten, kein Blinken. */
+  #ampel { left: 50%; top: calc(var(--gp) * 6); transform: translateX(-50%); display: flex; gap: calc(var(--gp) * 2.4); padding: calc(var(--gp) * 3) calc(var(--gp) * 4.6); transition: opacity 0.4s ease; }
+  #ampel[hidden] { display: none; }
+  #ampel.weg { opacity: 0; }
+  #ampel i {
+    width: calc(var(--gp) * 7);
+    height: calc(var(--gp) * 7);
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 34%, #2a2229, #141016 70%);
+    box-shadow: inset 0 0 0 1px rgba(241, 228, 188, 0.12);
+    transition: background-color 0.1s linear;
+  }
+  #ampel i.an { background: radial-gradient(circle at 38% 34%, #a8473c, #7a2c27 62%, #4e1d1c); }
+
+  /* Tafeln für Menü, Pause und Ergebnis: mittig über dem abgedunkelten Spielbild */
+  #schleier { position: absolute; inset: 0; background: rgba(6, 6, 14, 0.58); }
+  #schleier[hidden] { display: none; }
+  .tafel {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    padding: calc(var(--gp) * 7) calc(var(--gp) * 10) calc(var(--gp) * 7);
+    text-align: center;
+    font-family: var(--font-schild);
+    background: rgba(12, 11, 26, 0.9);
+  }
+  .tafel h1, .tafel h2 { margin: 0; font-weight: 600; color: var(--text); letter-spacing: 0.01em; }
+  .tafel h1 { font-size: calc(var(--gp) * 13); line-height: 1; }
+  .tafel h2 { font-size: calc(var(--gp) * 8.5); line-height: 1.1; }
+  .unterzeile { margin: calc(var(--gp) * 2) 0 calc(var(--gp) * 6); font: 400 calc(var(--gp) * 4.2)/1.3 var(--font-schild); color: var(--text-leise); font-style: italic; }
+  .wahl { display: flex; justify-content: center; gap: calc(var(--gp) * 3); margin: calc(var(--gp) * 3) 0; }
+  .wahl-titel { display: block; margin-top: calc(var(--gp) * 4); font: 500 calc(var(--gp) * 3.4)/1 var(--font-schild); color: var(--text-leise); letter-spacing: 0.06em; }
+  .knopf {
+    position: relative;
+    min-width: calc(var(--gp) * 38);
+    padding: calc(var(--gp) * 2.8) calc(var(--gp) * 6);
+    border: 1px solid color-mix(in srgb, var(--weissgold) 22%, transparent);
+    border-radius: calc(var(--gp) * 1.2);
+    background: rgba(8, 8, 18, 0.7);
+    color: var(--text-leise);
+    font: 560 calc(var(--gp) * 5.2)/1 var(--font-schild);
+    cursor: pointer;
+    box-shadow: calc(var(--gp) * -0.8) calc(var(--gp) * 1) calc(var(--gp) * 2) rgba(0, 0, 0, 0.45);
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .knopf::before { inset: 2px; opacity: 0.7; }
+  .knopf[aria-pressed="true"] { color: var(--weissgold); border-color: color-mix(in srgb, var(--weissgold) 55%, transparent); background: rgba(40, 113, 120, 0.22); }
+  .knopf:hover, .knopf:focus-visible { color: var(--text); border-color: color-mix(in srgb, var(--weissgold) 60%, transparent); outline: none; }
+  .knopf.haupt { margin-top: calc(var(--gp) * 7); min-width: calc(var(--gp) * 56); color: var(--weissgold); border-color: color-mix(in srgb, var(--weissgold) 45%, transparent); }
+  .knoepfe { display: flex; justify-content: center; gap: calc(var(--gp) * 3); margin-top: calc(var(--gp) * 6); }
+  .knoepfe .knopf.haupt { margin-top: 0; }
+  #pause .knoepfe { flex-direction: column; align-items: center; }
+  .rekord { margin: calc(var(--gp) * 5) 0 0; font: 400 calc(var(--gp) * 4)/1.2 var(--font-schild); color: var(--text-leise); }
+  .rekord b { font-weight: 600; color: color-mix(in srgb, var(--weissgold) 70%, var(--text-leise)); font-variant-numeric: tabular-nums lining-nums; }
+  .tasten { margin: calc(var(--gp) * 5) 0 0; font: 400 calc(var(--gp) * 3.4)/1.3 var(--font-text); color: #6E6F92; }
+
+  /* Ergebnistabelle */
+  #ergebnis { min-width: calc(var(--gp) * 196); }
+  #ergebnis.schmal { min-width: calc(var(--gp) * 124); }
+  #ergebnis table { width: 100%; margin-top: calc(var(--gp) * 5); border-collapse: collapse; font: 500 calc(var(--gp) * 4.6)/1.2 var(--font-schild); font-variant-numeric: tabular-nums lining-nums; color: var(--text-leise); }
+  #ergebnis th { padding: 0 calc(var(--gp) * 2) calc(var(--gp) * 1.6); font: 500 calc(var(--gp) * 3.2)/1 var(--font-schild); letter-spacing: 0.05em; text-align: left; color: #7c7da2; border-bottom: 1px solid color-mix(in srgb, var(--weissgold) 16%, transparent); }
+  #ergebnis td { padding: calc(var(--gp) * 1.3) calc(var(--gp) * 2); text-align: left; white-space: nowrap; }
+  #ergebnis .zahl { text-align: right; }
+  #ergebnis tr.du td { color: var(--text); background: rgba(63, 143, 147, 0.13); }
+  #ergebnis tr.du td:first-child { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--petrol) 80%, transparent); }
+  #ergebnis td.beste-runde { color: color-mix(in srgb, var(--weissgold) 72%, var(--text-leise)); }
+  .nummer {
+    display: inline-block;
+    min-width: calc(var(--gp) * 8.4);
+    padding: calc(var(--gp) * 0.6) calc(var(--gp) * 1.2);
+    border-radius: calc(var(--gp) * 0.8);
+    font: 600 calc(var(--gp) * 3.8)/1 var(--font-schild);
+    text-align: center;
+    color: #cbbd98;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  }
+  #ergebnis-hinweis { margin: calc(var(--gp) * 4) 0 0; font: 500 calc(var(--gp) * 4.4)/1.3 var(--font-schild); color: var(--text-leise); }
+  #ergebnis-hinweis.neu { color: color-mix(in srgb, var(--weissgold) 80%, var(--text-leise)); }
 
   .hilfe {
     position: absolute;
@@ -104,38 +186,93 @@
 </head>
 <body>
 <main id="buehne">
-  <canvas id="leinwand" width="427" height="240" aria-label="Spielbild: Straße, Himmel und dein Wagen von hinten"></canvas>
+  <canvas id="leinwand" width="427" height="240" aria-label="Spielbild: Straße, Himmel, die anderen Wagen und dein Wagen von hinten"></canvas>
   <div id="hud">
-    <div class="platte" id="platte-runde"><span class="etikett">Runde</span><span class="wert" id="runde">1/3</span></div>
+    <div class="platte" id="platte-stand">
+      <div id="block-platz"><span class="etikett">Platz</span><span class="wert" id="platz">6/8</span></div>
+      <div><span class="etikett">Runde</span><span class="wert" id="runde">1/3</span></div>
+    </div>
     <div class="platte" id="platte-zeit">
       <span class="etikett">Zeit</span><span class="wert" id="zeit">0:00.0</span>
       <div class="zeile"><span class="etikett">Letzte</span><span class="wert" id="letzte">-:--.--</span></div>
       <div class="zeile"><span class="etikett">Beste</span><span class="wert" id="beste">-:--.--</span></div>
+      <div class="zeile" id="zeile-rekord" hidden><span class="etikett">Rekord</span><span class="wert" id="rekord">-:--.--</span></div>
     </div>
     <div class="platte" id="platte-tempo"><span class="wert" id="tempo">0</span><span class="einheit">km/h</span><div class="balken"><i id="balken"></i></div></div>
     <div class="platte" id="platte-bot" hidden><span class="etikett">Bot am Steuer</span></div>
+    <div class="platte" id="ampel" hidden aria-label="Startampel"><i></i><i></i><i></i><i></i><i></i></div>
   </div>
+  <div id="schleier" hidden></div>
+  <section class="tafel" id="menue" hidden aria-labelledby="menue-titel">
+    <h1 id="menue-titel">Streckenblitz</h1>
+    <p class="unterzeile">Möwenkap, Küste in der Abenddämmerung</p>
+    <span class="wahl-titel">Modus</span>
+    <div class="wahl">
+      <button class="knopf" type="button" data-modus="rennen" aria-pressed="true">Rennen</button>
+      <button class="knopf" type="button" data-modus="zeitfahren" aria-pressed="false">Zeitfahren</button>
+    </div>
+    <span class="wahl-titel">Runden</span>
+    <div class="wahl">
+      <button class="knopf" type="button" data-runden="3" aria-pressed="true">3 Runden</button>
+      <button class="knopf" type="button" data-runden="5" aria-pressed="false">5 Runden</button>
+    </div>
+    <p class="rekord">Rekord Möwenkap: <b id="menue-rekord">noch keiner</b></p>
+    <button class="knopf haupt" type="button" id="los">Los</button>
+    <p class="tasten">Enter startet · R Rennen · Z Zeitfahren · 3 oder 5 Runden</p>
+  </section>
+  <section class="tafel" id="pause" hidden aria-labelledby="pause-titel">
+    <h2 id="pause-titel">Pause</h2>
+    <div class="knoepfe">
+      <button class="knopf haupt" type="button" id="weiter">Weiter</button>
+      <button class="knopf" type="button" id="neu-starten">Neu starten</button>
+      <button class="knopf" type="button" id="zum-menue">Zum Menü</button>
+    </div>
+    <p class="tasten">Esc oder P fährt weiter</p>
+  </section>
+  <section class="tafel" id="ergebnis" hidden aria-labelledby="ergebnis-titel">
+    <h2 id="ergebnis-titel">Ergebnis</h2>
+    <table>
+      <thead id="ergebnis-kopf"></thead>
+      <tbody id="ergebnis-zeilen"></tbody>
+    </table>
+    <p id="ergebnis-hinweis"></p>
+    <div class="knoepfe">
+      <button class="knopf haupt" type="button" id="nochmal">Nochmal</button>
+      <button class="knopf" type="button" id="ergebnis-menue">Zum Menü</button>
+    </div>
+  </section>
 </main>
-<p class="hilfe">Gas <kbd>↑</kbd> oder <kbd>W</kbd> · Bremse <kbd>↓</kbd>, <kbd>S</kbd> oder <kbd>Leertaste</kbd> · Lenken <kbd>←</kbd> <kbd>→</kbd> oder <kbd>A</kbd> <kbd>D</kbd></p>
+<p class="hilfe">Gas <kbd>↑</kbd> oder <kbd>W</kbd> · Bremse <kbd>↓</kbd>, <kbd>S</kbd> oder <kbd>Leertaste</kbd> · Lenken <kbd>←</kbd> <kbd>→</kbd> oder <kbd>A</kbd> <kbd>D</kbd> · Pause <kbd>Esc</kbd> oder <kbd>P</kbd></p>
 
 <script src="strecke.js"></script>
 <script src="physik.js"></script>
+<script src="rennen.js"></script>
 <script src="grafik.js"></script>
 <script>
 (function () {
   "use strict";
-  const S = window.Strecke, P = window.Physik, G = window.Grafik;
-  const RUNDEN = 3;
+  const S = window.Strecke, P = window.Physik, R = window.Rennen, G = window.Grafik;
+  const STRECKE = "moewenkap";
+  const FREI_RUNDEN = 3; // freie Fahrt (?start): Runde x/3 als Trainingsserie wie in M1
 
-  // URL-Parameter: ?bot=1 setzt den Bot ans Steuer, ?start=<segment> beginnt an einer anderen Stelle
+  /*
+   * URL-Parameter (für Werkzeuge, Tests und Fotos):
+   *   ?modus=rennen|zeitfahren|frei  startet sofort ohne Menü
+   *   ?runden=3|5                    Rundenzahl
+   *   ?bot=1                         der Bot fährt für dich (ohne modus: Rennen)
+   *   ?start=<segment>               freie Fahrt ab dieser Stelle (ohne modus: frei)
+   *   ?zeitraffer=<1..20>            die Zeit läuft so viel schneller
+   *   ?samen=<zahl>                  fester Zufall (Ampelpause, Fahrfehler)
+   */
   const parameter = new URLSearchParams(location.search);
   const mitBot = parameter.get("bot") === "1";
+  const raffer = Math.max(1, Math.min(20, Number(parameter.get("zeitraffer")) || 1));
+  const startModus = ["rennen", "zeitfahren", "frei"].includes(parameter.get("modus")) ? parameter.get("modus")
+    : parameter.has("start") ? "frei" : mitBot ? "rennen" : null;
 
-  const strecke = S.baue(S.PLAENE.moewenkap);
+  const strecke = S.baue(S.PLAENE[STRECKE]);
   const L = S.KONST.SEGMENT_LAENGE;
   const startSegment = Math.max(0, Math.min(strecke.anzahl - 1, Math.floor(Number(parameter.get("start")) || 0)));
-  const auto = P.neuesAuto(startSegment * L, 0);
-  let vorher = { z: auto.z, x: auto.x };
   const uhr = { konto: 0 };
 
   const grafik = G.erzeuge(strecke, (b, h) => {
@@ -143,7 +280,19 @@
     c.width = b;
     c.height = h;
     return c;
-  });
+  }, R.FAHRER);
+
+  // --- Bestzeit je Strecke im Browser (darf fehlen oder gesperrt sein) -----------------
+  const REKORD_SCHLUESSEL = "streckenblitz.rekord." + STRECKE;
+  function rekordLesen() {
+    try {
+      const w = Number(localStorage.getItem(REKORD_SCHLUESSEL));
+      return w > 0 && isFinite(w) ? w : null;
+    } catch { return null; }
+  }
+  function rekordSchreiben(t) {
+    try { localStorage.setItem(REKORD_SCHLUESSEL, String(t)); } catch { /* ohne Speicher eben nur für diese Sitzung */ }
+  }
 
   // --- Bildgröße: ganzzahlig in Gerätepixeln, Rest bleibt dunkel ------------------
   const buehne = document.getElementById("buehne");
@@ -161,15 +310,89 @@
     buehne.style.setProperty("--gp", (leinwand.width / dpr / G.B) + "px");
     buehne.style.top = "calc(50% - 14px)";
     sicht.imageSmoothingEnabled = false;
+    neuZeichnen = true;
   }
+  let neuZeichnen = true;
   window.addEventListener("resize", groesse);
-  groesse();
+
+  // --- Zustand ---------------------------------------------------------------------
+  // zustand: menue, fahrt, pause, ergebnis
+  let zustand = "menue";
+  let wahl = { modus: "rennen", runden: Number(parameter.get("runden")) === 5 ? 5 : 3 };
+  let rennen = null;
+  let vorher = [];             // Stellen aller Autos vor dem letzten Takt (zum Zeichnen dazwischen)
+  const el = (id) => document.getElementById(id);
+
+  function neuesRennen(modus) {
+    const samen = parameter.has("samen") ? Number(parameter.get("samen")) : Math.floor(Math.random() * 1e9);
+    rennen = R.neu(strecke, { modus, runden: wahl.runden, samen, startZ: startSegment * L });
+    vorher = rennen.autos.map((a) => ({ z: a.z, x: a.x }));
+    uhr.konto = 0;
+    hudZuruecksetzen();
+  }
+
+  // --- Tafeln ----------------------------------------------------------------------
+  const tafeln = { menue: el("menue"), pause: el("pause"), ergebnis: el("ergebnis") };
+  function zeigeTafel(name) {
+    for (const [n, t] of Object.entries(tafeln)) t.hidden = n !== name;
+    el("schleier").hidden = !name;
+    el("hud").classList.toggle("leise", name === "menue" || name === "ergebnis");
+    const fokus = { menue: "los", pause: "weiter", ergebnis: "nochmal" }[name];
+    if (fokus) el(fokus).focus({ preventScroll: true });
+  }
+  function menueZeigen() {
+    zustand = "menue";
+    neuesRennen(wahl.modus === "zeitfahren" ? "zeitfahren" : "rennen"); // Startaufstellung als Hintergrund
+    const rekord = rekordLesen();
+    el("menue-rekord").textContent = rekord ? zeitGenau(rekord) : "noch keiner";
+    wahlZeigen();
+    zeigeTafel("menue");
+    neuZeichnen = true;
+  }
+  function wahlZeigen() {
+    for (const k of document.querySelectorAll("[data-modus]")) k.setAttribute("aria-pressed", String(k.dataset.modus === wahl.modus));
+    for (const k of document.querySelectorAll("[data-runden]")) k.setAttribute("aria-pressed", String(Number(k.dataset.runden) === wahl.runden));
+  }
+  function starten(modus) {
+    neuesRennen(modus || wahl.modus);
+    zustand = "fahrt";
+    zeigeTafel(null);
+    zuletzt = null;
+  }
+  function pause(an) {
+    if (an && zustand === "fahrt") { zustand = "pause"; zeigeTafel("pause"); gedrueckt.clear(); }
+    else if (!an && zustand === "pause") { zustand = "fahrt"; zeigeTafel(null); zuletzt = null; }
+  }
+  for (const k of document.querySelectorAll("[data-modus]")) k.addEventListener("click", () => { wahl.modus = k.dataset.modus; menueZeigen(); });
+  for (const k of document.querySelectorAll("[data-runden]")) k.addEventListener("click", () => { wahl.runden = Number(k.dataset.runden); wahlZeigen(); });
+  el("los").addEventListener("click", () => starten());
+  el("weiter").addEventListener("click", () => pause(false));
+  el("neu-starten").addEventListener("click", () => starten(rennen.modus));
+  el("zum-menue").addEventListener("click", menueZeigen);
+  el("nochmal").addEventListener("click", () => starten(rennen.modus));
+  el("ergebnis-menue").addEventListener("click", menueZeigen);
 
   // --- Tastatur ----------------------------------------------------------------
   const gedrueckt = new Set();
   const TASTEN = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD", "Space"]);
   window.addEventListener("keydown", (e) => {
-    if (!TASTEN.has(e.code)) return;
+    const aufKnopf = document.activeElement && document.activeElement.tagName === "BUTTON";
+    if (e.code === "Escape" || e.code === "KeyP") {
+      if (zustand === "fahrt") pause(true);
+      else if (zustand === "pause") pause(false);
+      else if (zustand === "ergebnis" && e.code === "Escape") menueZeigen();
+      e.preventDefault();
+      return;
+    }
+    if (zustand === "menue" && !e.repeat) {
+      if (e.code === "KeyR") { wahl.modus = "rennen"; menueZeigen(); }
+      else if (e.code === "KeyZ") { wahl.modus = "zeitfahren"; menueZeigen(); }
+      else if (e.code === "Digit3" || e.code === "Numpad3") { wahl.runden = 3; wahlZeigen(); }
+      else if (e.code === "Digit5" || e.code === "Numpad5") { wahl.runden = 5; wahlZeigen(); }
+      else if ((e.code === "Enter" || e.code === "NumpadEnter") && !aufKnopf) starten();
+      return;
+    }
+    if (zustand !== "fahrt" || !TASTEN.has(e.code)) return;
     e.preventDefault();
     gedrueckt.add(e.code);
   });
@@ -185,65 +408,198 @@
   }
 
   // --- Anzeigen: laufende Zahlen nur alle 0,5 s, Rundenzeiten genau und dann stehend ----
-  const el = (id) => document.getElementById(id);
-  const anzeige = { runde: el("runde"), zeit: el("zeit"), letzte: el("letzte"), beste: el("beste"), tempo: el("tempo"), balken: el("balken") };
+  const anzeige = { platz: el("platz"), runde: el("runde"), zeit: el("zeit"), letzte: el("letzte"), beste: el("beste"), rekord: el("rekord"), tempo: el("tempo"), balken: el("balken") };
   if (mitBot) el("platte-bot").hidden = false;
   function zweistellig(n) { return (n < 10 ? "0" : "") + n; }
   function zeitZehntel(t) {
-    const z = Math.floor(t * 10);
+    const z = Math.floor(Math.max(0, t) * 10);
     return Math.floor(z / 600) + ":" + zweistellig(Math.floor(z / 10) % 60) + "." + (z % 10);
   }
   function zeitGenau(t) {
     const h = Math.round(t * 100);
     return Math.floor(h / 6000) + ":" + zweistellig(Math.floor(h / 100) % 60) + "." + zweistellig(h % 100);
   }
-  let hudTakt = 0.5, gezeigteRunden = -1;
-  function hud(dt) {
-    hudTakt += dt;
-    if (hudTakt >= 0.5) {
-      hudTakt = 0; // ohne Übertrag, sonst käme nach einem verspäteten Bild der nächste Wechsel zu früh
-      anzeige.zeit.textContent = zeitZehntel(auto.zeit - auto.rundenStart);
-      anzeige.tempo.textContent = String(Math.round(P.kmh(auto.tempo)));
+  function rueckstandText(t) {
+    const h = Math.round(t * 100);
+    if (h < 6000) return "+" + Math.floor(h / 100) + "," + zweistellig(h % 100) + " s";
+    return "+" + zeitGenau(t);
+  }
+  // Zeitpunkt (performance.now) des letzten Zahlenwechsels; gemessen in echter Zeit, nicht im Takt der Bilder,
+  // damit der Abstand auch dann nie unter 500 ms fällt, wenn ein Bild später ausgeführt wird als geplant
+  let letzterWechsel = -Infinity, gezeigteRunden = -1, ampelGezeigt = -1;
+  function hudZuruecksetzen() {
+    letzterWechsel = -Infinity;
+    gezeigteRunden = -1;
+    ampelGezeigt = -1;
+    const imRennen = rennen.modus === "rennen";
+    el("block-platz").hidden = !imRennen;
+    el("zeile-rekord").hidden = rennen.modus !== "zeitfahren";
+    const rekord = rekordLesen();
+    anzeige.rekord.textContent = rekord ? zeitGenau(rekord) : "-:--.--";
+    anzeige.letzte.textContent = anzeige.beste.textContent = "-:--.--";
+    anzeige.letzte.classList.remove("bestzeit");
+    anzeige.beste.classList.remove("bestzeit");
+    el("ampel").hidden = rennen.modus === "frei";
+    el("ampel").classList.remove("weg");
+    for (const l of el("ampel").children) l.classList.remove("an");
+  }
+  function rundenText(a) {
+    if (rennen.modus === "frei") return ((a.runde - 1) % FREI_RUNDEN) + 1 + "/" + FREI_RUNDEN;
+    return Math.min(rennen.runden, Math.max(1, a.runde)) + "/" + rennen.runden;
+  }
+  function hud(erzwingen) {
+    const a = rennen.spieler;
+    const jetzt = performance.now();
+    if (erzwingen || jetzt - letzterWechsel >= 500) {
+      letzterWechsel = jetzt; // ohne Übertrag, sonst käme nach einem verspäteten Bild der nächste Wechsel zu früh
+      const lauf = a.fertig ? a.letzte : a.runde > 0 ? a.zeit - a.rundenStart : a.zeit;
+      anzeige.zeit.textContent = zeitZehntel(lauf);
+      anzeige.tempo.textContent = String(Math.round(P.kmh(a.tempo)));
+      if (rennen.modus === "rennen") anzeige.platz.textContent = (R.platzierung(rennen).indexOf(a) + 1) + "/" + rennen.autos.length;
     }
-    if (auto.rundenZeiten.length !== gezeigteRunden) {
-      gezeigteRunden = auto.rundenZeiten.length;
-      anzeige.runde.textContent = ((auto.runde - 1) % RUNDEN) + 1 + "/" + RUNDEN;
-      if (auto.letzte != null) {
-        anzeige.letzte.textContent = zeitGenau(auto.letzte);
-        anzeige.beste.textContent = zeitGenau(auto.beste);
-        anzeige.letzte.classList.toggle("bestzeit", auto.letzte === auto.beste);
+    if (a.rundenZeiten.length !== gezeigteRunden) {
+      gezeigteRunden = a.rundenZeiten.length;
+      anzeige.runde.textContent = rundenText(a);
+      if (a.letzte != null) {
+        anzeige.letzte.textContent = zeitGenau(a.letzte);
+        anzeige.beste.textContent = zeitGenau(a.beste);
+        anzeige.letzte.classList.toggle("bestzeit", a.letzte === a.beste);
+        const rekord = rekordLesen();
+        anzeige.beste.classList.toggle("bestzeit", rennen.modus === "zeitfahren" && (!rekord || a.beste < rekord));
       }
     }
-    anzeige.balken.style.transform = "scaleX(" + (auto.tempo / P.KONST.HOECHST).toFixed(3) + ")";
+    // Ampel: Lichter nach der Uhr des Rennens, nach dem Start noch kurz sichtbar (alle aus), dann ausgeblendet
+    const ampel = rennen.ampel.aus ? 0 : rennen.ampel.an;
+    if (ampel !== ampelGezeigt) {
+      ampelGezeigt = ampel;
+      [...el("ampel").children].forEach((l, i) => l.classList.toggle("an", i < ampel));
+    }
+    if (rennen.ampel.aus && rennen.modus !== "frei") {
+      const ampelEnde = R.KONST.AMPEL_LICHTER * R.KONST.AMPEL_TAKT + rennen.ampel.pause;
+      el("ampel").classList.toggle("weg", rennen.zeit > ampelEnde + 1.2);
+    }
+    anzeige.balken.style.transform = "scaleX(" + Math.min(1, a.tempo / P.KONST.HOECHST).toFixed(3) + ")";
+  }
+
+  // --- Ergebnis ----------------------------------------------------------------------
+  function zelle(text, klasse) {
+    const td = document.createElement("td");
+    td.textContent = text;
+    if (klasse) td.className = klasse;
+    return td;
+  }
+  function ergebnisZeigen() {
+    zustand = "ergebnis";
+    const kopf = el("ergebnis-kopf"), zeilen = el("ergebnis-zeilen"), hinweis = el("ergebnis-hinweis");
+    kopf.textContent = zeilen.textContent = "";
+    hinweis.className = "";
+    el("ergebnis").classList.toggle("schmal", rennen.modus !== "rennen");
+    const titel = document.createElement("tr");
+    if (rennen.modus === "rennen") {
+      el("ergebnis-titel").textContent = "Ergebnis, " + rennen.runden + " Runden";
+      R.zuEndeFahren(rennen, 600);
+      const liste = R.ergebnis(rennen);
+      const schnellste = Math.min(...liste.map((z) => z.beste ?? Infinity));
+      for (const t of ["Platz", "Nr.", "Fahrer", "Zeit", "Beste Runde"]) titel.appendChild(Object.assign(document.createElement("th"), { textContent: t }));
+      titel.children[0].className = titel.children[3].className = titel.children[4].className = "zahl";
+      kopf.appendChild(titel);
+      for (const z of liste) {
+        const tr = document.createElement("tr");
+        if (z.istSpieler) tr.className = "du";
+        tr.appendChild(zelle(z.platz + ".", "zahl"));
+        const nr = document.createElement("td");
+        const chip = document.createElement("span");
+        chip.className = "nummer";
+        chip.style.background = z.farbe;
+        chip.textContent = z.nummer != null ? String(z.nummer) : " ";
+        nr.appendChild(chip);
+        tr.appendChild(nr);
+        tr.appendChild(zelle(z.name));
+        tr.appendChild(zelle(z.gesamt == null ? "unterwegs" : z.platz === 1 ? zeitGenau(z.gesamt) : rueckstandText(z.rueckstand), "zahl"));
+        tr.appendChild(zelle(z.beste != null ? zeitGenau(z.beste) : "-:--.--", "zahl" + (z.beste === schnellste ? " beste-runde" : "")));
+        zeilen.appendChild(tr);
+      }
+      const ich = liste.find((z) => z.istSpieler);
+      hinweis.textContent = ich.platz === 1 ? "Sieg. Du warst schneller als alle." : "Du bist als " + ich.platz + ". angekommen.";
+    } else {
+      el("ergebnis-titel").textContent = "Zeitfahren, " + rennen.runden + " Runden";
+      const a = rennen.spieler;
+      for (const t of ["Runde", "Zeit"]) titel.appendChild(Object.assign(document.createElement("th"), { textContent: t }));
+      titel.children[1].className = "zahl";
+      kopf.appendChild(titel);
+      a.rundenZeiten.forEach((t, i) => {
+        const tr = document.createElement("tr");
+        tr.appendChild(zelle(String(i + 1)));
+        tr.appendChild(zelle(zeitGenau(t), "zahl" + (t === a.beste ? " beste-runde" : "")));
+        zeilen.appendChild(tr);
+      });
+      const rekord = rekordLesen();
+      if (a.beste != null && (!rekord || a.beste < rekord)) {
+        rekordSchreiben(a.beste);
+        hinweis.textContent = "Neue Bestzeit auf Möwenkap: " + zeitGenau(a.beste);
+        hinweis.className = "neu";
+      } else {
+        hinweis.textContent = "Bestzeit auf Möwenkap: " + zeitGenau(rekord) + ", dir fehlten " + rueckstandText(a.beste - rekord).slice(1);
+      }
+    }
+    zeigeTafel("ergebnis");
   }
 
   // --- Spielschleife: feste Physik-Takte, Zeichnen mit Zwischenstand ------------------
   function jeTakt() {
-    vorher = { z: auto.z, x: auto.x };
-    const eingabe = mitBot ? P.botEingabe(auto, strecke) : tastenEingabe();
-    P.schritt(auto, eingabe, strecke);
+    for (let i = 0; i < rennen.autos.length; i++) { vorher[i].z = rennen.autos[i].z; vorher[i].x = rennen.autos[i].x; }
+    R.schritt(rennen, mitBot ? null : tastenEingabe());
+  }
+  function zwischen(i, anteil) {
+    const a = rennen.autos[i], v = vorher[i];
+    let dz = a.z - v.z;
+    if (dz < -strecke.laenge / 2) dz += strecke.laenge;
+    return { z: v.z + dz * anteil, x: v.x + (a.x - v.x) * anteil, lenk: a.lenk };
+  }
+  function zeichnen(anteil) {
+    const ich = zwischen(0, anteil);
+    const gegner = [];
+    for (let i = 1; i < rennen.autos.length; i++) {
+      const g = zwischen(i, anteil);
+      g.nr = R.FAHRER.indexOf(rennen.autos[i].fahrer);
+      gegner.push(g);
+    }
+    grafik.zeichne({ z: ich.z, x: ich.x, lenk: ich.lenk, untergrund: rennen.spieler.untergrund, gegner });
+    sicht.drawImage(grafik.bild, 0, 0, leinwand.width, leinwand.height);
   }
   let zuletzt = null;
   function bild(jetzt) {
     const dt = zuletzt == null ? 0 : (jetzt - zuletzt) / 1000;
     zuletzt = jetzt;
-    const anteil = P.takt(uhr, dt, jeTakt);
-    let dz = auto.z - vorher.z;
-    if (dz < -strecke.laenge / 2) dz += strecke.laenge;
-    grafik.zeichne({
-      z: vorher.z + dz * anteil,
-      x: vorher.x + (auto.x - vorher.x) * anteil,
-      lenk: auto.lenk,
-      untergrund: auto.untergrund,
-    });
-    sicht.drawImage(grafik.bild, 0, 0, leinwand.width, leinwand.height);
-    hud(dt);
+    if (zustand === "fahrt") {
+      const anteil = P.takt(uhr, dt * raffer, jeTakt);
+      if (rennen.phase === "ziel") {
+        zeichnen(1);
+        hud(true);
+        ergebnisZeigen();
+      } else {
+        zeichnen(anteil);
+        hud(false);
+      }
+    } else if (neuZeichnen) {
+      // Menü, Pause, Ergebnis: das Bild steht, gezeichnet wird nur nach einer Größenänderung
+      zeichnen(1);
+      neuZeichnen = false;
+    }
     requestAnimationFrame(bild);
   }
+
+  groesse();
+  if (startModus) { wahl.modus = startModus; starten(startModus); } else menueZeigen();
   requestAnimationFrame(bild);
 
-  // Für Werkzeuge und Tests (werkzeuge/foto.mjs)
-  window.streckenblitz = { strecke, auto, grafik, mitBot, uhr };
+  // Für Werkzeuge und Tests (werkzeuge/foto.mjs, tests/spiel.mjs)
+  window.streckenblitz = {
+    strecke, grafik, mitBot, uhr, raffer,
+    get rennen() { return rennen; },
+    get auto() { return rennen.spieler; },
+    get zustand() { return zustand; },
+  };
 })();
 </script>
 </body>

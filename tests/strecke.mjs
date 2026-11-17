@@ -1,4 +1,4 @@
-// Prüfungen der Streckenlogik und der Fahrphysik, ohne Browser.
+// Prüfungen der Streckenlogik, der Fahrphysik und des Rennens, ohne Browser.
 //
 //   node tests/strecke.mjs
 //
@@ -247,6 +247,182 @@ pruefe(Math.max(...vorsichtig.a.rundenZeiten) <= 70, "vorsichtige Runden bleiben
 const b1 = botRennen(0.9, 120, 1), b2 = botRennen(0.9, 120, 1);
 pruefe(b1.a.letzte === b2.a.letzte, "Bot fährt zweimal exakt gleich (" + b1.a.letzte.toFixed(3) + " s)");
 
+// --- Rennen ----------------------------------------------------------------------
+const R = require(path.join(wurzel, "rennen.js"));
+const RK = R.KONST;
+
+abschnitt("Rennen: Fahrer und Aufstellung");
+{
+  pruefe(R.FAHRER.length === 7, "7 Gegner (" + R.FAHRER.length + ")");
+  pruefe(new Set(R.FAHRER.map((f) => f.name)).size === 7, "Namen verschieden");
+  pruefe(new Set(R.FAHRER.map((f) => f.nummer)).size === 7 && R.FAHRER.every((f) => f.nummer > 0 && f.nummer < 100), "Startnummern verschieden, ein- oder zweistellig");
+  pruefe(new Set([...R.FAHRER.map((f) => f.farbe), R.SPIELER.farbe]).size === 8, "acht verschiedene Farben");
+  // Farben auch ohne Farbsehen etwas auseinander: Leuchtdichte nicht bei allen gleich (die Nummer trägt die Unterscheidung)
+  const hell = R.FAHRER.map((f) => leuchtdichte(f.farbe));
+  pruefe(Math.max(...hell) / Math.min(...hell) > 2, "Grundfarben unterscheiden sich auch in der Helligkeit (" + Math.min(...hell).toFixed(3) + " bis " + Math.max(...hell).toFixed(3) + ")");
+  const r = R.neu(strecke, { modus: "rennen", runden: 3, samen: 1 });
+  pruefe(r.autos.length === 8 && r.spieler === r.autos[0] && r.spieler.istSpieler, "8 Autos, das erste bist du");
+  pruefe(r.spieler.startPlatz === RK.SPIELER_PLATZ && RK.SPIELER_PLATZ === 6, "du startest von Platz 6");
+  const plaetze = r.autos.map((a) => a.startPlatz).sort((a, b) => a - b).join(",");
+  pruefe(plaetze === "1,2,3,4,5,6,7,8", "Startplätze 1 bis 8 je einmal");
+  const reihe = R.platzierung(r).map((a) => a.startPlatz).join(",");
+  pruefe(reihe === "1,2,3,4,5,6,7,8", "Platzierung vor dem Start folgt der Aufstellung");
+  pruefe(r.autos.every((a) => a.runde === 0 && a.z > strecke.laenge / 2), "alle stehen hinter der Ziellinie (Runde 0)");
+  let frei = true;
+  for (const a of r.autos) for (const b of r.autos) if (a !== b && Math.abs(R.abstand(a, b, strecke.laenge)) < RK.AUTO_LAENGE && Math.abs(a.x - b.x) < RK.AUTO_BREITE) frei = false;
+  pruefe(frei, "in der Aufstellung berührt sich niemand");
+}
+
+abschnitt("Rennen: Startampel");
+{
+  const r = R.neu(strecke, { modus: "rennen", runden: 3, samen: 7 });
+  const z0 = r.autos.map((a) => a.z);
+  const folge = [];
+  let takte = 0;
+  while (r.phase === "ampel" && takte < 60 * 20) {
+    R.schritt(r, { gas: 1, bremse: 0, lenken: 0 });
+    takte++;
+    const an = r.ampel.aus ? 0 : r.ampel.an;
+    if ((folge.length ? folge[folge.length - 1].an : 0) !== an) folge.push({ an, t: r.zeit });
+  }
+  const anFolge = folge.map((f) => f.an).join(",");
+  pruefe(anFolge === "1,2,3,4,5,0", "Lichter 1 bis 5 nacheinander an, dann alle zusammen aus (" + anFolge + ")");
+  const takt = folge.slice(1, 5).every((f, i) => Math.abs(f.t - folge[i].t - RK.AMPEL_TAKT) < 0.02);
+  pruefe(takt, "ein Licht je Sekunde (kein schnelles Wechseln)");
+  const pause = folge[5].t - folge[4].t;
+  pruefe(pause >= RK.AMPEL_PAUSE[0] - 0.02 && pause <= RK.AMPEL_PAUSE[1] + 0.02, "alle fünf stehen " + pause.toFixed(2) + " s, dann aus");
+  pruefe(r.autos.every((a, i) => a.z === z0[i] && a.tempo === 0), "während der Ampel bewegt sich kein Auto, auch nicht mit Gas");
+  pruefe(r.phase === "rennen" && r.ampel.aus, "danach läuft das Rennen");
+  R.schritt(r, { gas: 1, bremse: 0, lenken: 0 });
+  pruefe(r.spieler.tempo > 0, "mit dem Erlöschen fährt man los");
+}
+
+abschnitt("Rennen: Windschatten, Gummiband, Berührung");
+{
+  // Windschatten: dicht hinter einem anderen Auto auf gleicher Spur
+  const r = R.neu(strecke, { modus: "rennen", runden: 3, samen: 1 });
+  r.phase = "rennen";
+  const [a, b] = r.autos;
+  r.autos.slice(2).forEach((c, i) => { c.z = (strecke.laenge / 2 + i * 5000) % strecke.laenge; });
+  a.z = 1000; a.x = 0; b.z = 1000 + 1000; b.x = 0.05;
+  R.motor(r, a);
+  const wDicht = a.windschatten;
+  b.x = 0.7;
+  R.motor(r, a);
+  const wDaneben = a.windschatten;
+  b.x = 0.05; b.z = 1000 + RK.WIND_BIS + 500;
+  R.motor(r, a);
+  const wWeit = a.windschatten;
+  pruefe(wDicht > 0.5, "1000 Einheiten hinter einem Auto: Windschatten " + wDicht.toFixed(2));
+  pruefe(wDaneben === 0 && wWeit === 0, "seitlich versetzt oder weit weg: kein Windschatten");
+  // Wirkung: mit vollem Windschatten über das Höchsttempo hinaus, ohne nicht
+  const mit = P.neuesAuto(1000, 0), ohne = P.neuesAuto(1000, 0);
+  mit.tempo = ohne.tempo = P.KONST.HOECHST;
+  mit.hoechstFaktor = 1 + RK.WIND_PLUS;
+  for (let i = 0; i < 120; i++) { P.schritt(mit, { gas: 1 }, strecke); P.schritt(ohne, { gas: 1 }, strecke); }
+  pruefe(mit.tempo > P.KONST.HOECHST * 1.01 && ohne.tempo <= P.KONST.HOECHST, "Windschatten hebt das Höchsttempo (" + Math.round(P.kmh(mit.tempo)) + " statt " + Math.round(P.kmh(ohne.tempo)) + " km/h)");
+  mit.hoechstFaktor = 1;
+  for (let i = 0; i < 120; i++) P.schritt(mit, { gas: 1 }, strecke);
+  pruefe(mit.tempo <= P.KONST.HOECHST + 1e-6, "ohne Windschatten rollt es wieder auf das Höchsttempo zurück");
+
+  // Gummiband: höchstens GUMMI nach oben oder unten
+  const g = R.neu(strecke, { modus: "rennen", runden: 3, samen: 1 });
+  g.phase = "rennen";
+  const ki = g.autos[1];
+  g.autos.forEach((c, i) => { c.runde = 1; c.z = i * 20000; c.x = (i % 2) * 0.8 - 0.4; });
+  g.spieler.z = 300000;
+  const hinten = R.motor(g, ki) / ki.fahrer.motor;
+  g.spieler.z = 0; ki.z = 300000;
+  const vorn = R.motor(g, ki) / ki.fahrer.motor;
+  // fester Deckel 3 % (Briefing: Gummiband nur sanft), nicht die Konstante selbst, sonst prüfte sich der Test gegen sich
+  pruefe(hinten > 1 && hinten <= 1.03 + 1e-9 && vorn < 1 && vorn >= 0.97 - 1e-9, "Gummiband wirkt, aber höchstens 3 % (" + ((hinten - 1) * 100).toFixed(1) + " % und " + ((vorn - 1) * 100).toFixed(1) + " %)");
+  pruefe(Math.abs(R.motor(g, g.spieler) - 1) < 1e-9, "für dich gibt es kein Gummiband");
+
+  // Berührung von hinten: der Hintere bremst, danach überlappen sie nicht mehr
+  const k = R.neu(strecke, { modus: "rennen", runden: 3, samen: 1 });
+  k.autos.slice(2).forEach((c, i) => { c.z = (strecke.laenge / 2 + i * 5000) % strecke.laenge; });
+  const [h, v] = k.autos;
+  h.z = 5000; h.x = 0.1; h.tempo = 9000;
+  v.z = 5300; v.x = 0; v.tempo = 6000;
+  R.beruehrungen(k);
+  pruefe(h.tempo <= v.tempo, "Auffahren: der Hintere wird nicht schneller als der Vordere (" + Math.round(h.tempo) + ", " + Math.round(v.tempo) + ")");
+  pruefe(R.abstand(v, h, strecke.laenge) >= RK.AUTO_LAENGE - 1e-6, "danach mit Abstand hintereinander");
+  // nebeneinander: zur Seite geschoben
+  h.z = 9000; v.z = 9100; h.x = 0.1; v.x = 0.25; h.tempo = v.tempo = 8000;
+  R.beruehrungen(k);
+  pruefe(Math.abs(h.x - v.x) >= RK.AUTO_BREITE - 1e-6 && h.x < v.x, "Seitenkontakt: auseinandergeschoben (" + h.x.toFixed(2) + ", " + v.x.toFixed(2) + ")");
+  pruefe(h.tempo > 7500 && v.tempo > 7500, "Seitenkontakt kostet nur wenig Tempo");
+}
+
+let rennInfo = "";
+abschnitt("Rennen: ganze Rennen mit Bot");
+{
+  // Bezug: der Bot allein mit demselben Mut wie am Steuer des Spielers
+  const bezug = P.neuesAuto();
+  while (bezug.rundenZeiten.length < 2) P.schritt(bezug, P.botEingabe(bezug, strecke, RK.BOT_MUT), strecke);
+  const botRunde = bezug.rundenZeiten[1];
+  let alleFertig = true, eindeutig = true, zeitenSteigen = true, maxKontakt = 0, kontaktTakte = 0, takteGesamt = 0;
+  let maxGras = 0, ueberholt = 0, kiMin = Infinity, kiMax = 0, zuLang = false;
+  const spielerPlaetze = [];
+  for (const samen of [1, 2, 3, 4, 5, 6]) {
+    const r = R.neu(strecke, { modus: "rennen", runden: 3, samen });
+    const gras = new Array(8).fill(0);
+    let vorher = null;
+    while (r.phase !== "ziel" && r.zeit < 400) {
+      R.schritt(r, null);
+      takteGesamt++;
+      for (const a of r.autos) {
+        maxKontakt = Math.max(maxKontakt, a.kontakt);
+        if (a.kontaktJetzt) kontaktTakte++;
+        if (a.untergrund === "gras") gras[a.nr]++;
+      }
+      if (r.phase === "rennen") {
+        const ord = R.platzierung(r).filter((a) => !a.istSpieler).map((a) => a.nr);
+        if (vorher) for (let i = 0; i < ord.length; i++) if (ord[i] !== vorher[i]) { ueberholt++; break; }
+        vorher = ord;
+      }
+    }
+    if (r.zeit >= 400) zuLang = true;
+    if (!R.zuEndeFahren(r, 600)) alleFertig = false;
+    const e = R.ergebnis(r);
+    if (e.map((z) => z.platz).join(",") !== "1,2,3,4,5,6,7,8" || new Set(e.map((z) => z.name)).size !== 8) eindeutig = false;
+    for (let i = 1; i < e.length; i++) if (!(e[i].gesamt >= e[i - 1].gesamt)) zeitenSteigen = false;
+    for (const z of e) if (!z.istSpieler) { kiMin = Math.min(kiMin, z.beste); kiMax = Math.max(kiMax, z.beste); }
+    spielerPlaetze.push(e.find((z) => z.istSpieler).platz);
+    maxGras = Math.max(maxGras, ...gras);
+  }
+  pruefe(!zuLang, "jedes Rennen endet für dich in unter 400 s");
+  pruefe(alleFertig, "in allen 6 Rennen kommen alle 8 Autos ins Ziel");
+  pruefe(eindeutig, "Platzierungen 1 bis 8 eindeutig, acht verschiedene Fahrer");
+  pruefe(zeitenSteigen, "Gesamtzeiten passen zur Reihenfolge");
+  pruefe(maxKontakt < 60, "niemand verkeilt sich: längste Berührung " + maxKontakt + " Takte (unter 1 s)");
+  pruefe(kontaktTakte / takteGesamt < 0.5, "Berührungen selten (" + kontaktTakte + " Auto-Takte in " + takteGesamt + " Takten)");
+  pruefe(maxGras < 60 * 4, "Gegner fahren höchstens kurz durchs Gras (längstens " + (maxGras / 60).toFixed(1) + " s je Rennen)");
+  pruefe(ueberholt >= 6, "Gegner überholen einander (" + ueberholt + " Wechsel in 6 Rennen)");
+  pruefe(kiMin >= botRunde * 0.93 && kiMax <= botRunde * 1.08, "beste KI-Runden " + kiMin.toFixed(2) + " bis " + kiMax.toFixed(2) + " s, im Band 93 bis 108 % der Bot-Runde " + botRunde.toFixed(2) + " s");
+  pruefe(Math.min(...spielerPlaetze) < RK.SPIELER_PLATZ, "der Bot an deiner Stelle kann überholen (Plätze " + spielerPlaetze.join(", ") + ")");
+  rennInfo = "6 Rennen: dein Bot auf Platz " + spielerPlaetze.join(", ") + "; KI-Bestrunden " + kiMin.toFixed(2) + " bis " + kiMax.toFixed(2) +
+    " s (Bot allein " + botRunde.toFixed(2) + " s); längste Berührung " + maxKontakt + " Takte; " + ueberholt + " Platzwechsel unter Gegnern";
+  const a1 = R.neu(strecke, { modus: "rennen", runden: 3, samen: 9 }), a2 = R.neu(strecke, { modus: "rennen", runden: 3, samen: 9 });
+  for (const r of [a1, a2]) { while (r.phase !== "ziel") R.schritt(r, null); R.zuEndeFahren(r, 600); }
+  pruefe(JSON.stringify(R.ergebnis(a1)) === JSON.stringify(R.ergebnis(a2)), "gleicher Samen, gleiches Rennen");
+  const r5 = R.neu(strecke, { modus: "rennen", runden: 5, samen: 2 });
+  while (r5.phase !== "ziel" && r5.zeit < 600) R.schritt(r5, null);
+  pruefe(r5.spieler.rundenZeiten.length === 5 && R.zuEndeFahren(r5, 600), "auch über 5 Runden kommen alle an");
+}
+
+abschnitt("Zeitfahren");
+{
+  const r = R.neu(strecke, { modus: "zeitfahren", runden: 3, samen: 1 });
+  pruefe(r.autos.length === 1, "allein auf der Strecke");
+  pruefe(r.phase === "ampel", "auch das Zeitfahren beginnt mit der Ampel");
+  while (r.phase !== "ziel" && r.zeit < 300) R.schritt(r, null);
+  const a = r.spieler;
+  pruefe(a.fertig && a.rundenZeiten.length === 3, "3 gezeitete Runden, dann Ziel");
+  pruefe(a.rundenZeiten[0] < a.zeit && a.rundenZeiten[0] > 40, "die erste Runde beginnt erst an der Linie (mit Anlauf, " + a.rundenZeiten[0].toFixed(2) + " s)");
+  pruefe(a.beste === Math.min(...a.rundenZeiten), "beste Runde stimmt");
+}
+
 // --- Texte und Dateien --------------------------------------------------------------
 abschnitt("Texte und Dateien");
 function dateien(ordner) {
@@ -275,6 +451,7 @@ abschnitt("");
 console.log("Streckenblitz, Logik ohne Browser (" + strecke.name + ", " + strecke.anzahl + " Segmente, Runde " + (strecke.laenge / 1000).toFixed(1) + " tausend Einheiten)");
 console.log(ausgabe.join("\n"));
 console.log("  Bot-Runden: " + r.a.rundenZeiten.map((t) => t.toFixed(2) + " s").join(", "));
+console.log("  " + rennInfo);
 console.log(`\nSUMME: ${gesamt} Prüfungen, ${fehler.length} Fehler`);
 if (fehler.length) {
   console.log("\n" + fehler.join("\n"));
