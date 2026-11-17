@@ -154,7 +154,8 @@
       const x = B * (0.25 + z() * 0.5), y = H * (0.3 + z() * 0.3);
       m.linie(x, y, x + (z() - 0.5) * 8, y + 4 + z() * 6, 1, F.stein[0]);
     }
-    m.zeile(H - 1, 0, B, mix(F.stein[0], "#000000", 0.4));
+    // Fußlinie nur unter dem Stein (zwischen seinen Fußpunkten), nicht als Brett darüber hinaus
+    m.zeile(H - 1, Math.round(pkte[0][0]) + 1, Math.round(pkte[n - 1][0]) - 1, mix(F.stein[0], "#000000", 0.3));
     return { b: B, h: H, fussX: Math.round(B / 2) };
   }
 

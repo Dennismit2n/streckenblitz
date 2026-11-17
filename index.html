@@ -6,6 +6,18 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0A0D15">
 <meta name="description" content="Streckenblitz ist ein Formel-Rennspiel im Browser: kleines Pixelraster, volle Farben, Abenddämmerung.">
+<!-- Link-Vorschau. og:image muss absolut sein, Crawler lösen relative Pfade nicht auf. -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://dennismit2n.github.io/streckenblitz/">
+<meta property="og:title" content="Streckenblitz · Formula racing in your browser">
+<meta property="og:description" content="My own pseudo-3D formula racer on a pixel grid with full colours: three tracks at dusk, seven rivals, time trial, brake regeneration and an e-boost. No flashing lights, 14 languages, offline after the first visit.">
+<meta property="og:image" content="https://dennismit2n.github.io/streckenblitz/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Dark graphic: a race in Streckenblitz at dusk, your teal formula car behind three rivals on a coastal road with palms. Top left a plate with white gold screws, the icon, the name “Streckenblitz”, the line “Formula racing on a pixel grid” and, smaller, „Formelrennen im Pixelraster.“ Below it „Kostenlos, ohne Blitze, offline nach dem ersten Besuch“.">
+<meta property="og:locale" content="en_GB">
+<meta property="og:locale:alternate" content="de_DE">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -212,6 +224,11 @@
   :root.beruehrung #platte-tempo { left: calc(var(--hp) * 6); top: calc(var(--hp) * 24.5); bottom: auto; }
   :root.beruehrung #buehne { --karte: calc(var(--hp) * 38); }
   :root.beruehrung #platte-karte { left: auto; right: calc(var(--hp) * 6); bottom: auto; top: var(--karte-oben, calc(var(--hp) * 38)); }
+  /* Die Bedienflächen hängen am Fenster, die Platten am Bild, dessen CSS-Größe vom DPR abhängt. Ragt eine Fläche seitlich
+     ins Bild, rücken die Platten dieser Seite nach innen (das Skript setzt --platten-links, --platten-rechts und --zeit-rechts). */
+  :root.beruehrung #platte-stand, :root.beruehrung #platte-tempo { left: var(--platten-links, calc(var(--hp) * 6)); }
+  :root.beruehrung #platte-zeit { right: var(--zeit-rechts, calc(var(--hp) * 6)); }
+  :root.beruehrung #platte-karte { right: var(--platten-rechts, calc(var(--hp) * 6)); }
 
   /* Startampel: fünf Lichter, gehen nacheinander an und zusammen aus. Gedämpftes Rot, kein Leuchten, kein Blinken. */
   #ampel { left: 50%; top: calc(var(--hp) * 6); transform: translateX(-50%); display: flex; gap: calc(var(--hp) * 2.4); padding: calc(var(--hp) * 3) calc(var(--hp) * 4.6); transition: opacity 0.4s ease; }
@@ -488,14 +505,18 @@
     #touch-pause { left: auto; right: 14px; top: auto; bottom: calc(14px + 176px + 14px); }
     #platte-zeit .zeile { display: none; }
     :root.beruehrung #buehne { --karte: calc(var(--hp) * 34); }
+    /* hochkant ist das Bild zu schmal für Ampel und Zeit nebeneinander: die Ampel steht unter dem Bild in der freien Fläche */
+    #ampel { top: calc(100% + var(--hp) * 4); }
   }
 
   /* ---------- Kleine Fenster ---------- */
   /* Handy quer: Titel links, Platte rechts, alles enger */
   @media (max-height: 560px) and (orientation: landscape) {
     #menue .innen { flex-direction: row; align-items: center; gap: 22px; }
-    .kopf { width: 30%; max-width: 270px; text-align: left; }
-    .titel { font-size: clamp(28px, 4.4vw, 40px); }
+    /* Die Kopfspalte ist so breit wie der Schriftzug und schrumpft nie darunter: Der Titel ist nur über background-clip
+       gefärbt, was über seine Box ragt, wäre unsichtbar. Der Untertitel bricht in dieser Breite um. */
+    .kopf { flex: 0 0 auto; width: min-content; text-align: left; }
+    .titel { font-size: clamp(28px, 4.4vw, 40px); white-space: nowrap; }
     .titel-streifen { width: 80%; height: 5px; margin: 9px 0 0 4px; }
     .kicker { margin-top: 9px; font-size: 14px; }
     .menue-tafel { flex: 1 1 0; min-width: 0; }
@@ -626,7 +647,8 @@
 
   /* Umgekehrte Farben wie der Farbfilter von Windows, auch das Spielbild (wie der Tisch bei Kugelblitz).
      Rasterbilder und alles mit data-echt werden zurückgedreht und bleiben echt; gedruckt wird nie umgedreht. */
-  :root[data-vision="invert"] { filter: invert(1); }
+  /* Die stille Schrift wird umgedreht dunkler als gedacht (4,2:1 auf der hellen Platte), darum vorher etwas heller (4,9:1) */
+  :root[data-vision="invert"] { filter: invert(1); --sb-text-still: #939BB2; }
   :root[data-vision="invert"] :is(img:not([src*=".svg"]), video, [data-echt]):not([data-echt] *) { filter: invert(1); }
   @media print {
     :root[data-vision="invert"],
@@ -963,15 +985,30 @@
       // (sind die Bedienflächen gerade versteckt, etwa in der Pause, bleibt die Größe, damit die Karte nicht springt)
       buehne.style.removeProperty("--karte");
       buehne.style.removeProperty("--karte-oben");
+      buehne.style.removeProperty("--platten-links");
+      buehne.style.removeProperty("--platten-rechts");
+      buehne.style.removeProperty("--zeit-rechts");
     }
     if (finger && !versteckt) {
       const platte = el("platte-karte"), zeit = el("platte-zeit"), hp = parseFloat(getComputedStyle(platte).paddingTop) / 2.2;
+      // Ragt eine Bedienfläche seitlich ins Bild (schmale Fenster, DPR 2 oder 4), rücken die Platten dieser Seite nach innen
+      if (!el("touch").hidden) {
+        const bild = buehne.getBoundingClientRect(), r = (id) => el(id).getBoundingClientRect();
+        const imBild = (k) => k.height > 0 && k.top < bild.bottom && k.bottom > bild.top;
+        const pause = r("touch-pause"), spalte = [r("touch-turbo"), r("touch-gas")].filter(imBild);
+        if (imBild(pause)) buehne.style.setProperty("--platten-links", Math.max(hp * 6, pause.right - bild.left + hp * 3) + "px");
+        const rechts = (knoepfe) => Math.max(hp * 6, bild.right - Math.min(...knoepfe.map((k) => k.left)) + hp * 3) + "px";
+        if (spalte.length) buehne.style.setProperty("--platten-rechts", rechts(spalte));
+        // die Zeit nur, wenn ein Knopf bis in ihre Höhe reicht (sonst stieße sie ohne Not an die Startampel)
+        const hoch = spalte.filter((k) => k.top < zeit.getBoundingClientRect().bottom + hp * 3);
+        if (hoch.length) buehne.style.setProperty("--zeit-rechts", rechts(hoch));
+      }
       const oben = zeit.offsetTop + zeit.offsetHeight + hp * 3;
       let unten = leinwand.offsetHeight - hp * 3;
       const bremse = el("touch-bremse").getBoundingClientRect();
       if (!el("touch").hidden && bremse.height) unten = Math.min(unten, bremse.top - buehne.getBoundingClientRect().top - hp * 3);
       const voll = karteLeinwand.getBoundingClientRect().width, rahmen = platte.offsetHeight - voll;
-      buehne.style.setProperty("--karte", Math.max(hp * 22, Math.min(voll, unten - oben - rahmen)) + "px");
+      buehne.style.setProperty("--karte", Math.max(hp * 16, Math.min(voll, unten - oben - rahmen)) + "px");
       buehne.style.setProperty("--karte-oben", oben + "px");
     }
     const dpr = window.devicePixelRatio || 1, r = karteLeinwand.getBoundingClientRect();

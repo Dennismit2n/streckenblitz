@@ -517,14 +517,14 @@ try {
     const sw = await js(`(async () => {
       const bereit = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 8000))]);
       const namen = await caches.keys();
-      const schluessel = namen.includes("streckenblitz-v3") ? (await (await caches.open("streckenblitz-v3")).keys()).map((r) => r.url) : [];
+      const schluessel = namen.includes("streckenblitz-v4") ? (await (await caches.open("streckenblitz-v4")).keys()).map((r) => r.url) : [];
       return { aktiv: !!(bereit && bereit.active), bereich: bereit ? bereit.scope : "", caches: namen, inhalt: schluessel.length, karte: schluessel.some((u) => u.endsWith("/karte.js")) }; })()`);
     console.log("  Service Worker: " + JSON.stringify(sw));
     pruefe(sw.aktiv && /127\.0\.0\.1:8644\/$/.test(sw.bereich), "Service Worker registriert und aktiv (Bereich " + sw.bereich + ")");
     // 18 Dateien seit M5b (karte.js dazu); die Liste in sw.js muss alles enthalten, was index.html lädt
     const swListe = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8"), seite = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
     const geladen = [...seite.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
-    pruefe(sw.caches.includes("streckenblitz-v3") && sw.inhalt >= 18 && sw.karte && geladen.every((d) => swListe.includes('"./' + d + '"')), "Cache streckenblitz-v3 mit allen Dateien (" + sw.inhalt + " Einträge, karte.js dabei, alle " + geladen.length + " Skripte der Seite in der Liste)");
+    pruefe(sw.caches.includes("streckenblitz-v4") && sw.inhalt >= 18 && sw.karte && geladen.every((d) => swListe.includes('"./' + d + '"')), "Cache streckenblitz-v4 mit allen Dateien (" + sw.inhalt + " Einträge, karte.js dabei, alle " + geladen.length + " Skripte der Seite in der Liste)");
     const mf = await js(`(async () => { const l = document.querySelector('link[rel="manifest"]'); const m = await (await fetch(l.href)).json();
       const icons = await Promise.all(m.icons.map(async (i) => (await fetch(i.src)).status));
       return { orientation: m.orientation, display: m.display, name: m.name, icons, start: m.start_url }; })()`);
@@ -559,8 +559,11 @@ try {
   console.log("Sehhilfen und Kontrast");
   const MODI = [["normal", "system"], ["hc-dunkel", "hc-dark"], ["hc-hell", "hc-light"], ["farbenblind", "cvd-dark"], ["umkehr", "invert"]];
   // Kontrast aller festen Schriften der Menüplatte gegen ihren Grund (Durchsicht der Platte vernachlässigt)
+  // Bei Umkehr (filter: invert(1) auf der ganzen Seite) wird jeder Kanal umgedreht, gerechnet wird dann mit 255 minus Wert.
   const KONTRAST = `(() => {
-    const zahl = (c) => { const m = c.match(/[\\d.]+/g).map(Number); return c.startsWith("color(") ? m.slice(0, 3).map((v) => v * 255) : m.slice(0, 3); };
+    const umkehr = document.documentElement.getAttribute("data-vision") === "invert";
+    const roh = (c) => { const m = c.match(/[\\d.]+/g).map(Number); return c.startsWith("color(") ? m.slice(0, 3).map((v) => v * 255) : m.slice(0, 3); };
+    const zahl = (c) => roh(c).map((v) => (umkehr ? 255 - v : v));
     const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; const [r, g, b] = zahl(c); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
     const verh = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
     const grund = getComputedStyle(document.querySelector(".menue-tafel")).backgroundColor;
@@ -574,11 +577,9 @@ try {
     await laden("?strecke=moewenkap");
     const z = await js(`[${SB}.darstellung, ${SB}.grafik.modus, document.documentElement.getAttribute("data-vision"), document.getElementById("darstellung").value]`);
     pruefe(z[0] === modus && z[1] === modus, modus + ": Seite und Spielbild in derselben Darstellung (" + z.join(", ") + ")");
-    if (modus !== "umkehr") {
-      const k = await js(KONTRAST);
-      const schwach = k.filter(([, v]) => v < 4.5);
-      pruefe(!schwach.length, modus + ": alle Menüschriften mindestens 4,5:1 (kleinster Wert " + Math.min(...k.map(([, v]) => v)) + ")" + (schwach.length ? " zu schwach: " + JSON.stringify(schwach) : ""));
-    }
+    const k = await js(KONTRAST);
+    const schwach = k.filter(([, v]) => v < 4.5);
+    pruefe(!schwach.length, modus + ": alle Menüschriften mindestens 4,5:1 (kleinster Wert " + Math.min(...k.map(([, v]) => v)) + ")" + (schwach.length ? " zu schwach: " + JSON.stringify(schwach) : ""));
   }
   // Im Spielbild: Hoher Kontrast macht die Randlinie hell und breit, die Randsteine einfarbig; Farbenblind tauscht die Gegnerfarben
   const bild = await js(`(() => {
@@ -719,6 +720,43 @@ try {
   await cdp("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await warte(300);
   pruefe(await js(`${SB}.zustand === "pause" && document.getElementById("touch").hidden`), "Touch: Pause-Fläche hält an, die Bedienflächen verschwinden");
+
+  // Titel quer in allen 14 Sprachen: Der Schriftzug ist nur über background-clip gefärbt, was über seine Box ragt, wäre
+  // unsichtbar. Gemessen werden die Glyphen (Range) gegen den H1, nicht nur der Container.
+  console.log("Titel quer");
+  const titelFunde = [];
+  for (const [w, h, d] of [[844, 390, 3], [932, 430, 3], [667, 375, 2]]) {
+    await cdp("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: d, mobile: true, screenOrientation: { type: "landscapePrimary", angle: 90 } });
+    for (const code of ["de", "en", "es", "fr", "it", "nl", "pl", "pt", "tr", "ru", "hi", "zh", "ja", "ko"]) {
+      await laden("?sprache=" + code + "&strecke=moewenkap");
+      await js(`document.fonts.ready.then(() => 1)`);
+      const t = await js(`(() => { const e = document.getElementById("menue-titel"), r = document.createRange(); r.selectNodeContents(e);
+        const a = r.getBoundingClientRect(), b = e.getBoundingClientRect(); return [a.left - b.left, b.right - a.right]; })()`);
+      if (t[0] < -1 || t[1] < -1) titelFunde.push(w + "x" + h + " " + code + " (" + t.map((v) => v.toFixed(0)).join(", ") + ")");
+    }
+  }
+  pruefe(!titelFunde.length, "Handy quer (844 × 390, 932 × 430, 667 × 375): der Titel steht in allen 14 Sprachen ganz in seiner Box" + (titelFunde.length ? ", ragt hinaus: " + titelFunde.join("; ") : ""));
+
+  // Bedienflächen gegen Platten auf verbreiteten Handygrößen: Das Bild skaliert ganzzahlig in Gerätepixeln, seine CSS-Größe
+  // hängt also vom DPR ab; die Platten hängen am Bild, die Knöpfe am Fenster.
+  console.log("Überdeckung je Gerät");
+  const UEBER = `(() => { const r = (id) => { const e = document.getElementById(id); if (!e || e.closest("[hidden]")) return null; const b = e.getBoundingClientRect(); return b.width ? b : null; };
+    const knoepfe = ["touch-turbo", "touch-gas", "touch-bremse", "lenkzone", "touch-pause"], platten = ["platte-stand", "platte-zeit", "platte-tempo", "platte-karte", "ampel"], f = [];
+    const ueber = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+    for (const k of knoepfe) for (const p of platten) { const a = r(k), b = r(p); if (a && b && ueber(a, b)) f.push(k + "/" + p); }
+    for (let i = 0; i < platten.length; i++) for (let j = i + 1; j < platten.length; j++) { const a = r(platten[i]), b = r(platten[j]); if (a && b && ueber(a, b)) f.push(platten[i] + "/" + platten[j]); }
+    return f; })()`;
+  for (const [w, h, d] of [[667, 375, 2], [740, 360, 4], [780, 360, 3], [844, 390, 2], [844, 390, 3], [932, 430, 3]]) {
+    await cdp("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: d, mobile: true, screenOrientation: { type: "landscapePrimary", angle: 90 } });
+    const funde = [];
+    for (const modus of ["rennen", "zeitfahren"]) {
+      await laden("?modus=" + modus + "&samen=3&strecke=moewenkap");
+      await warte(1200);
+      for (const x of await js(UEBER)) funde.push(modus + " " + x);
+    }
+    if (w === 667) await fotoAls("m5/rennen-667x375-2-de.png");
+    pruefe(!funde.length, w + " × " + h + " bei DPR " + d + ": keine Bedienfläche über einer Platte, keine Platte über einer anderen (Rennen und Zeitfahren)" + (funde.length ? ", überdeckt: " + funde.join("; ") : ""));
+  }
 
   console.log("Hochkant");
   await ansicht("hoch");

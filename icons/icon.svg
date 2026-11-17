@@ -40,11 +40,17 @@
       <path d="M2.7 6.62h6.6" stroke="#FFF7DA" stroke-opacity=".75" stroke-width=".3" stroke-linecap="round"/>
     </g>
     <ellipse id="glanz" cx="7.7" cy="3.9" rx="1.05" ry=".6" transform="rotate(-35 7.7 3.9)" fill="#FFFFFF" fill-opacity=".9"/>
+    <linearGradient id="kappe-blende" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="64">
+      <stop offset=".2" stop-color="#fff"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <mask id="kappe-maske"><rect width="512" height="64" fill="url(#kappe-blende)"/></mask>
   </defs>
 
   <g clip-path="url(#rund)">
     <rect width="512" height="512" fill="url(#platte)"/>
-    <rect width="512" height="9" fill="#D58A4E" opacity=".85"/>
+    <!-- Kappe wie an der Menütafel: folgt der Rundung bis in die Ecken und blendet nach unten aus -->
+    <rect width="512" height="512" rx="104" fill="none" stroke="#D58A4E" stroke-width="26" opacity=".85" mask="url(#kappe-maske)"/>
   </g>
   <rect x="2" y="2" width="508" height="508" rx="102" fill="none" stroke="#2c354a" stroke-width="4"/>
   <g clip-path="url(#fenster)">
