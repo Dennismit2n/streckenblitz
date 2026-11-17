@@ -278,6 +278,15 @@ abschnitt("Höchsttempo und E-Turbo");
   for (let i = 0; i < 60 * 10; i++) P.schritt(h, { gas: 1, turbo: true }, gerade);
   pruefe(h.zuendungen === 1, "dauernd gehaltene Taste zündet in 10 s nur einmal (" + h.zuendungen + ")");
   pruefe(mitten === 1 && d.zuendungen === 2, "kein Dauerfeuer: während Schub und Pause keine zweite Zündung, danach wieder (" + mitten + ", " + d.zuendungen + ")");
+  // Turbo im vollen Windschatten (Faktor 1,045): höchstens 365 km/h, ohne Turbo bleibt der Windschatten wie er ist
+  const w = P.neuesAuto(0, 0);
+  w.hoechstFaktor = 1.045;
+  for (let i = 0; i < 60 * 60; i++) P.schritt(w, { gas: 1 }, gerade);
+  const wOhne = kmh(w);
+  w.akku = 1;
+  let wMax = 0;
+  for (let i = 0; i < 60 * 4; i++) { P.schritt(w, { gas: 1, turbo: i === 0 }, gerade); wMax = Math.max(wMax, kmh(w)); }
+  pruefe(wMax <= 365.5 && wMax >= 362 && wOhne > 355, "Turbo im vollen Windschatten höchstens 365 km/h (" + wMax.toFixed(1) + ", ohne Turbo " + wOhne.toFixed(1) + ")");
 }
 abschnitt("Rekuperation");
 {
@@ -301,6 +310,12 @@ abschnitt("Rekuperation");
   pruefe(gras.untergrund === "gras" && gras.akku === 0.3, "im Gras lädt nichts (" + gras.akku + ")");
   const steht = fahre(0, 0, { bremse: 1 }, 120);
   pruefe(steht.akku === 0.3, "im Stand mit Bremse lädt nichts");
+  // Gas und Bremse zugleich (analoge Trigger am Gamepad): geladen wird nur, was die Bremse über das Gas hinaus abbaut
+  const kriecht = fahre(0, 0, { gas: 1, bremse: 0.49 }, 600);
+  const haelt = fahre(0, 0.39 * K.HOECHST, { gas: 1, bremse: 0.3 }, 600);
+  const beides = fahre(0, 0.9 * K.HOECHST, { gas: 1, bremse: 1 }, 60);
+  pruefe(kriecht.akku === 0.3 && haelt.akku === 0.3, "Gas mit halb gedrückter Bremse lädt nicht, auch nicht über 10 s (" + kriecht.akku + " bei " + P.kmh(kriecht.tempo).toFixed(1) + " km/h, " + haelt.akku + " bei " + P.kmh(haelt.tempo).toFixed(0) + " km/h)");
+  pruefe(beides.akku > 0.3 + 0.1 && beides.akku < bremst.akku, "Gas mit voller Bremse lädt aus dem echten Abbau, weniger als Bremse allein (" + (beides.akku - 0.3).toFixed(3) + ")");
   const v2 = P.neuesAuto(1000, 0); v2.tempo = K.HOECHST; v2.akku = 0.99;
   for (let i = 0; i < 120; i++) P.schritt(v2, { bremse: 1 }, gerade);
   pruefe(v2.akku === 1, "der Akku wird nie voller als 1");
@@ -673,9 +688,9 @@ abschnitt("Streckenkarte");
   const grad = (w) => (w * 180) / Math.PI;
   // Ein Zeichenblatt ohne Browser: merkt sich Linien, Punkte und Schrift
   function blatt() {
-    const log = { linie: [], text: [] };
+    const log = { linie: [], text: [], fuellung: [] };
     const ctx = {
-      log, setTransform() {}, clearRect() {}, fillRect() {}, beginPath() {}, closePath() {}, stroke() {}, fill() {}, save() {}, restore() {},
+      log, setTransform() {}, clearRect() {}, fillRect() {}, beginPath() {}, closePath() {}, stroke() {}, fill() { log.fuellung.push(this.fillStyle); }, save() {}, restore() {},
       translate() {}, rotate() {}, arc() {}, moveTo(x, y) { log.linie.push([x, y]); }, lineTo(x, y) { log.linie.push([x, y]); },
       strokeText() {}, fillText(s, x, y) { log.text.push(s); }, measureText(s) { return { width: s.length * 5 }; },
       createLinearGradient() { return { addColorStop() {} }; },
@@ -741,6 +756,13 @@ abschnitt("Streckenkarte");
     const zeige = (dz7, zeit) => { const b = blatt(); K.zeichneMini(b, k, ansicht([fern(30000, 4), fern(dz7, 7)], zeit, stand)); return b.log.text.includes("7"); };
     const folge = [zeige(-30000, 0), zeige(30000, 0.1), zeige(30000, 0.3), zeige(30000, 0.6), zeige(-30000, 0.7), zeige(-30000, 1.2)];
     pruefe(folge.join() === "true,true,true,false,false,true", "Startnummer verschwindet und kommt wieder frühestens nach 0,5 s (" + folge.join() + ")");
+    // Ein Gegner 3000 Einheiten vor dir liegt im Umriss deines Pfeils: sein Punkt kommt nach dem Pfeil aufs Bild, sonst wäre er verdeckt
+    const vorn = blatt();
+    const lage = K.zeichneMini(vorn, k, ansicht([{ z: 53000, x: 0, farbe: "#e02020", nummer: 4 }], 0, {}));
+    const [gx, gy] = K.abbildung(k.punkt(50000, 0), lage.winkel, K.massstabMini(k, 132), lage.cx, lage.cy)(k.punkt(53000, 0));
+    const imPfeil = Math.abs(gx - lage.cx) < 3 && gy < lage.cy && gy > lage.cy - 6.2;
+    const pfeilAn = vorn.log.fuellung.indexOf(FARBEN.du), punktAn = vorn.log.fuellung.lastIndexOf("#e02020");
+    pruefe(imPfeil && pfeilAn >= 0 && punktAn > pfeilAn, "Gegner 3000 Einheiten vor dir (" + (lage.cy - gy).toFixed(1) + " Pixel über deiner Mitte, im Pfeil) wird über deinem Pfeil gezeichnet");
   }
 }
 

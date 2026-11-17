@@ -517,14 +517,14 @@ try {
     const sw = await js(`(async () => {
       const bereit = await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 8000))]);
       const namen = await caches.keys();
-      const schluessel = namen.includes("streckenblitz-v2") ? (await (await caches.open("streckenblitz-v2")).keys()).map((r) => r.url) : [];
+      const schluessel = namen.includes("streckenblitz-v3") ? (await (await caches.open("streckenblitz-v3")).keys()).map((r) => r.url) : [];
       return { aktiv: !!(bereit && bereit.active), bereich: bereit ? bereit.scope : "", caches: namen, inhalt: schluessel.length, karte: schluessel.some((u) => u.endsWith("/karte.js")) }; })()`);
     console.log("  Service Worker: " + JSON.stringify(sw));
     pruefe(sw.aktiv && /127\.0\.0\.1:8644\/$/.test(sw.bereich), "Service Worker registriert und aktiv (Bereich " + sw.bereich + ")");
     // 18 Dateien seit M5b (karte.js dazu); die Liste in sw.js muss alles enthalten, was index.html lädt
     const swListe = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8"), seite = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
     const geladen = [...seite.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
-    pruefe(sw.caches.includes("streckenblitz-v2") && sw.inhalt >= 18 && sw.karte && geladen.every((d) => swListe.includes('"./' + d + '"')), "Cache streckenblitz-v2 mit allen Dateien (" + sw.inhalt + " Einträge, karte.js dabei, alle " + geladen.length + " Skripte der Seite in der Liste)");
+    pruefe(sw.caches.includes("streckenblitz-v3") && sw.inhalt >= 18 && sw.karte && geladen.every((d) => swListe.includes('"./' + d + '"')), "Cache streckenblitz-v3 mit allen Dateien (" + sw.inhalt + " Einträge, karte.js dabei, alle " + geladen.length + " Skripte der Seite in der Liste)");
     const mf = await js(`(async () => { const l = document.querySelector('link[rel="manifest"]'); const m = await (await fetch(l.href)).json();
       const icons = await Promise.all(m.icons.map(async (i) => (await fetch(i.src)).status));
       return { orientation: m.orientation, display: m.display, name: m.name, icons, start: m.start_url }; })()`);
@@ -652,6 +652,39 @@ try {
   await js(`(() => { __pad.buttons[9].pressed = false; return true; })()`);
   await warte(200);
   pruefe(p3 === "pause" && await js(`${SB}.zustand`) === "fahrt", "Gamepad: Start hält an und fährt weiter");
+  // Was in der Pause gedrückt wurde, zündet nach dem Weiterfahren nicht, erst ein neuer Druck (RB gehalten; E gehalten mit Wiederholungen)
+  const TURBO_BEREIT = `(() => { const a = ${SB}.auto; a.akku = 1; a.turbo = 0; a.turboPause = 0; return a.zuendungen; })()`;
+  const rbDruck = (an) => js(`(() => { __pad.buttons[5].value = ${an ? 1 : 0}; __pad.buttons[5].pressed = ${an}; return true; })()`);
+  const pz0 = await js(TURBO_BEREIT);
+  await taste("KeyP");
+  await rbDruck(true);
+  await warte(300);
+  await taste("KeyP");
+  await warte(400);
+  const pz1 = await js(`${SB}.auto.zuendungen`);
+  await rbDruck(false);
+  await warte(200);
+  await rbDruck(true);
+  await warte(300);
+  await rbDruck(false);
+  const pz2 = await js(`${SB}.auto.zuendungen`);
+  pruefe(pz1 === pz0 && pz2 === pz0 + 1, "Gamepad: RB in der Pause gedrückt zündet nach dem Weiterfahren nicht, erst ein neuer Druck (Zündungen " + pz0 + ", " + pz1 + ", " + pz2 + ")");
+  const kz0 = await js(TURBO_BEREIT);
+  const e = (art, mehr) => cdp("Input.dispatchKeyEvent", Object.assign({ type: art, code: "KeyE", key: "e", windowsVirtualKeyCode: 69 }, mehr));
+  await taste("KeyP");
+  await e("keyDown");
+  await warte(200);
+  await taste("KeyP");
+  for (let i = 0; i < 6; i++) { await e("keyDown", { autoRepeat: true }); await warte(50); }
+  await warte(200);
+  const kz1 = await js(`${SB}.auto.zuendungen`);
+  await e("keyUp");
+  await warte(150);
+  await e("keyDown");
+  await warte(200);
+  await e("keyUp");
+  const kz2 = await js(`${SB}.auto.zuendungen`);
+  pruefe(kz1 === kz0 && kz2 === kz0 + 1, "Tastatur: E in der Pause gedrückt und gehalten zündet nach dem Weiterfahren nicht, erst ein neuer Druck (Zündungen " + kz0 + ", " + kz1 + ", " + kz2 + ")");
   await cdp("Page.removeScriptToEvaluateOnNewDocument", { identifier: padSkript.identifier });
 
   console.log("Touch");
@@ -819,6 +852,14 @@ try {
     pruefe(passt && spanne > 0.6, id + ": die Karte dreht sich mit der Fahrtrichtung (Winkel " + winkel.map((w) => w.toFixed(2)).join(" ") + ", größte Drehung " + (spanne * 180 / Math.PI).toFixed(0) + " Grad)");
     pruefe(voraus === proben.length, id + ": die Strecke voraus liegt über deinem Pfeil (" + voraus + " von " + proben.length + " Proben)");
   }
+  // Ein Gegner dicht vor dir liegt im Umriss deines Pfeils und bleibt trotzdem als Punkt sichtbar (Punkte liegen über dem Pfeil)
+  const dichtVorn = await js(`(() => { const c = Object.assign(document.createElement("canvas"), { width: 132, height: 132 }), x = c.getContext("2d", { willReadFrequently: true });
+    const k = ${SB}.kartenDaten, a = ${SB}.auto, farbe = "rgb(230, 40, 40)";
+    const st = Karte.zeichneMini(x, k, { breite: 132, hoehe: 132, d: 1, z: a.z, x: a.x, gegner: [{ z: a.z + 3000, x: a.x, farbe, nummer: 4 }], farben: ${SB}.kartenFarben.mini, nummern: false });
+    const [gx, gy] = Karte.abbildung(k.punkt(a.z, a.x), st.winkel, Karte.massstabMini(k, 132), st.cx, st.cy)(k.punkt(a.z + 3000, a.x));
+    const p = x.getImageData(Math.round(gx), Math.round(gy), 1, 1).data;
+    return { abstand: Math.hypot(gx - st.cx, gy - st.cy), farbe: [p[0], p[1], p[2]] }; })()`);
+  pruefe(dichtVorn.abstand < 5 && dichtVorn.farbe[0] > 180 && dichtVorn.farbe[1] < 90, "Gegner 3000 Einheiten vor dir liegt im Pfeil (" + dichtVorn.abstand.toFixed(1) + " Pixel von der Mitte) und bleibt als Punkt sichtbar (Farbe " + dichtVorn.farbe.join(",") + ")");
   // Ruhe: Winkel je Bild bei voller Fahrt ohne Zeitraffer durch das Hafen-S von Möwenkap, kein Zittern (kein Hin und Her
   // von Bild zu Bild; das S selbst dreht einmal um), höchstens wenige Grad je Bild
   await laden("?modus=frei&strecke=moewenkap&start=1820");

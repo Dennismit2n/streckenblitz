@@ -1128,7 +1128,11 @@
   }
   function pause(an) {
     if (an && zustand === "fahrt") { zustand = "pause"; zeigeTafel("pause"); gedrueckt.clear(); beruehrungLoesen(); }
-    else if (!an && zustand === "pause") { zustand = "fahrt"; zeigeTafel(null); zuletzt = null; }
+    else if (!an && zustand === "pause") {
+      zustand = "fahrt"; zeigeTafel(null); zuletzt = null;
+      // Was in der Pause gedrückt wurde (etwa RB am Gamepad), zündet nicht: erst loslassen und neu drücken
+      rennen.spieler.turboTaste = true;
+    }
   }
   for (const k of document.querySelectorAll("[data-modus]")) k.addEventListener("click", () => { wahl.modus = k.dataset.modus; menueZeigen(); });
   for (const k of document.querySelectorAll("[data-runden]")) k.addEventListener("click", () => { wahl.runden = Number(k.dataset.runden); wahlZeigen(); });
@@ -1172,6 +1176,8 @@
     }
     if (zustand !== "fahrt" || !TASTEN.has(e.code)) return;
     e.preventDefault();
+    // Turbo nur auf echten Druck: Eine Wiederholung einer Taste, die schon in der Pause lag, zündet nicht
+    if (e.repeat && (e.code === "KeyE" || e.code.startsWith("Shift"))) return;
     gedrueckt.add(e.code);
   });
   window.addEventListener("keyup", (e) => { gedrueckt.delete(e.code); });

@@ -197,7 +197,28 @@
     streckeZeichnen(ctx, karte, bild, f, d);
     zielZeichnen(ctx, karte, bild, f, d, 9);
 
-    // Gegner als Punkte mit dunklem Ring, auf Wunsch mit Startnummer
+    // Du: ein Pfeil nach oben, größer als die Punkte, mit hellem Rand (Form statt nur Farbe). Er kommt vor den Punkten
+    // aufs Bild: Gegner bis etwa 10 000 Einheiten vor oder hinter dir lägen sonst unter ihm und wären nicht zu sehen.
+    const g = 6.2 * d;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - g);
+    ctx.lineTo(cx + g * 0.72, cy + g * 0.72);
+    ctx.lineTo(cx, cy + g * 0.32);
+    ctx.lineTo(cx - g * 0.72, cy + g * 0.72);
+    ctx.closePath();
+    ctx.lineJoin = "round";
+    if (f.saum) {
+      ctx.lineWidth = 3.6 * d;
+      ctx.strokeStyle = f.saum;
+      ctx.stroke();
+    }
+    ctx.fillStyle = f.du;
+    ctx.fill();
+    ctx.lineWidth = 1.3 * d;
+    ctx.strokeStyle = f.duRand;
+    ctx.stroke();
+
+    // Gegner als Punkte mit dunklem Ring über deinem Pfeil, auf Wunsch mit Startnummer
     const r = 2.9 * d;
     const punkte = [];
     for (const g of ansicht.gegner) {
@@ -251,26 +272,6 @@
       ctx.fillRect(0, 0, B, H);
     }
     ctx.globalCompositeOperation = "source-over";
-
-    // Du: ein Pfeil nach oben, größer als die Punkte, mit hellem Rand (Form statt nur Farbe)
-    const g = 6.2 * d;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - g);
-    ctx.lineTo(cx + g * 0.72, cy + g * 0.72);
-    ctx.lineTo(cx, cy + g * 0.32);
-    ctx.lineTo(cx - g * 0.72, cy + g * 0.72);
-    ctx.closePath();
-    ctx.lineJoin = "round";
-    if (f.saum) {
-      ctx.lineWidth = 3.6 * d;
-      ctx.strokeStyle = f.saum;
-      ctx.stroke();
-    }
-    ctx.fillStyle = f.du;
-    ctx.fill();
-    ctx.lineWidth = 1.3 * d;
-    ctx.strokeStyle = f.duRand;
-    ctx.stroke();
     return { winkel, cx, cy };
   }
 

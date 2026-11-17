@@ -125,18 +125,22 @@
     auto.turboTaste = taste;
     const turboAn = auto.turbo > 0;
 
-    // Der Motor rechnet mit dem eigenen Höchsttempo, Fliehkraft und Lenkung mit dem echten Tempo
-    const hoechst = K.HOECHST * (auto.hoechstFaktor || 1) * (turboAn ? K.TURBO_HOECHST : 1);
+    // Der Motor rechnet mit dem eigenen Höchsttempo, Fliehkraft und Lenkung mit dem echten Tempo.
+    // Im Schub höchstens 365 km/h, auch im Windschatten (nur wer ohne Turbo schon schneller ist, behält das)
+    const eigen = K.HOECHST * (auto.hoechstFaktor || 1);
+    const hoechst = turboAn ? Math.max(eigen, K.HOECHST * K.TURBO_HOECHST) : eigen;
 
     // Längs: Schub, Bremse, Rollen, Hang, Untergrund
     const grasDeckel = K.GRAS_HOECHST * K.HOECHST;
     let a = 0;
     const schub = K.BESCHLEUNIGUNG * (1 - (1 - K.SCHUB_REST) * Math.min(1, auto.tempo / hoechst)) * (turboAn ? K.TURBO_SCHUB : 1);
-    if (gas > 0) a += gas * schub * (grund === "gras" ? K.GRAS_SCHUB : 1);
+    const gasSchub = gas > 0 ? gas * schub * (grund === "gras" ? K.GRAS_SCHUB : 1) : 0;
+    if (gas > 0) a += gasSchub;
     else a -= grund === "gras" ? K.GRAS_ROLLEN : K.ROLLEN;
     a -= bremse * K.BREMSE;
 
-    // Rekuperation: Was Bremse und Rollen an Tempo abbauen, lädt den Akku (nicht im Gras, nicht im Stand, nicht im Schub)
+    // Rekuperation: Was Bremse und Rollen an Tempo abbauen, lädt den Akku (nicht im Gras, nicht im Stand, nicht im Schub).
+    // Die Bremse zählt nur, soweit sie stärker ist als das Gas zugleich: Gas und halbe Bremse am Gamepad laden nichts.
     if (turboAn) {
       auto.akku = Math.max(0, auto.akku - K.TURBO_VERBRAUCH * dt);
       auto.turbo -= dt;
@@ -144,7 +148,7 @@
     } else {
       if (auto.turboPause > 0) auto.turboPause = Math.max(0, auto.turboPause - dt);
       if (grund !== "gras" && auto.tempo > 0) {
-        const bremsAbbau = Math.min(auto.tempo, bremse * K.BREMSE * dt);
+        const bremsAbbau = Math.min(auto.tempo, Math.max(0, bremse * K.BREMSE - gasSchub) * dt);
         const rollAbbau = gas > 0 ? 0 : Math.min(auto.tempo - bremsAbbau, K.ROLLEN * dt);
         auto.akku = Math.min(1, auto.akku + (K.REKU_BREMSE * bremsAbbau + K.REKU_ROLLEN * rollAbbau) / K.HOECHST);
       }
