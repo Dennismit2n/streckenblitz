@@ -12,7 +12,7 @@
 "use strict";
 
 // Bei jeder Änderung an einer der Dateien unten um 1 erhöhen
-const CACHE = "streckenblitz-v5";
+const CACHE = "streckenblitz-v6";
 
 // Genau die Dateien, die index.html und das Manifest laden. Eine Datei, die es nicht gibt, ließe die ganze
 // Installation scheitern.

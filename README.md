@@ -1,6 +1,6 @@
 # Streckenblitz
 
-**Formula racing in your browser, seen from behind the car, on a small pixel grid with full colours.** Three tracks at dusk, seven rivals, time trial with a record per track, plus brake regeneration and an e-boost. Dark, without a single flash. Keys or gamepad on a computer, your fingers on a phone or tablet. Runs right in the page, installs as an app and works offline after the first visit.
+**Formula racing in your browser, seen from behind the car, on a small pixel grid with full colors.** Three tracks at dusk, seven rivals, time trial with a record per track, plus brake regeneration and an e-boost. Dark, without a single flash. Keys or gamepad on a computer, your fingers on a phone or tablet. Runs right in the page, installs as an app and works offline after the first visit.
 
 ![Languages](https://img.shields.io/badge/Languages-14-A5A5FF) ![Offline](https://img.shields.io/badge/Offline-after%20first%20visit-75C7FF) ![Flashes](https://img.shields.io/badge/Flashes-none-AFA1FF)
 
@@ -10,7 +10,7 @@
 
 ## What it is
 
-My own pseudo-3D racer in the style of the early racing games on handhelds and in arcades: the road is projected piece by piece, curves and hills come from accumulated offsets. The picture is small on purpose (427 × 240 pixels) and scaled up sharp in whole steps, but the colours are full: sky gradients, haze, evening light, soft shadows. Old and new at once.
+My own pseudo-3D racer in the style of the early racing games on handhelds and in arcades: the road is projected piece by piece, curves and hills come from accumulated offsets. The picture is small on purpose (427 × 240 pixels) and scaled up sharp in whole steps, but the colors are full: sky gradients, haze, evening light, soft shadows. Old and new at once.
 
 It started with the memory of a rather weak formula game on an old handheld. That can be done better, I thought. It is still not a remake: tracks, names, cars, graphics, sound and menus are my own, drawn without a single image file. Every sprite is created in code when the game starts.
 
@@ -18,13 +18,13 @@ It started with the memory of a rather weak formula game on an old handheld. Tha
 
 | | |
 |---|---|
-| **Möwenkap** | Coast at dusk, with a lighthouse, a hairpin and a harbour pier. |
+| **Möwenkap** | Coast at dusk, with a lighthouse, a hairpin and a harbor pier. |
 | **Mondsenke** | Desert at night under the stars, with a cactus bend and a rock gate. |
 | **Tannenjoch** | Mountain forest in the last light, with a hunter’s bend and a village straight, the twistiest of the three. |
 | **Race** | Against seven rivals over 3 or 5 laps, with start lights, slipstream and a result with every driver’s best lap. Each rival has a style of their own: one pushes, one defends, one saves the battery. |
 | **Time trial** | Alone on the track. Your best time is stored per track and shown in the track choice. |
 
-The track choice shows every track as a map from above. In the race a small map at the bottom left turns with you, you always point up, the rivals are dots in their colours.
+The track choice shows every track as a map from above. In the race a small map at the bottom left turns with you, you always point up, the rivals are dots in their colors.
 
 <img src="docs/streckenwahl-1440-en.webp" alt="The Streckenblitz menu: at the top the name in white gold with a speed stripe and “Formula racing on a pixel grid”, below it a plate with screws and an orange cap holding three cards for Möwenkap, Mondsenke and Tannenjoch with the track from above, below it race or time trial, 3 or 5 laps and the buttons Go, Sound off, Settings and Install.">
 
@@ -50,10 +50,10 @@ In the menu Enter starts, ← → picks the track, R and Z pick race or time tri
 
 ## Light and appearance
 
-I am very sensitive to light, so Streckenblitz is built dark and calm. There are no flashes and nothing blinks. The striped kerbs have little contrast so they do not flicker at speed, and the start lights come on one by one and go out together. Running numbers like time and speed change at most twice a second, speed also has a bar. The glow at the speed plate while the boost runs fades in and out softly over half a second. The test script measures flicker in the game picture at top speed.
+I am very sensitive to light, so Streckenblitz is built dark and calm. There are no flashes and nothing blinks. The striped curbs have little contrast so they do not flicker at speed, and the start lights come on one by one and go out together. Running numbers like time and speed change at most twice a second, speed also has a bar. The glow at the speed plate while the boost runs fades in and out softly over half a second. The test script measures flicker in the game picture at top speed.
 
-- **Visual aids:** in the settings you find the same choice as in the other tools of the workshop: high contrast dark and light (bright, wide edge line, plain kerbs, an outline around every car), colour-blind (rival colours after Okabe and Ito, race numbers on the map too) and inverted colours.
-- **Sound:** engine with a seven-speed automatic, tyres, impacts and the hum of the boost, all synthesised in the browser, no music. The game starts muted, the switch in the menu remembers your choice.
+- **Visual aids:** in the settings you find the same choice as in the other tools of the workshop: high contrast dark and light (bright, wide edge line, plain curbs, an outline around every car), color-blind (rival colors after Okabe and Ito, race numbers on the map too) and inverted colors.
+- **Sound:** engine with a seven-speed automatic, tires, impacts and the hum of the boost, all synthesized in the browser, no music. The game starts muted, the switch in the menu remembers your choice.
 - **14 languages:** German, English, Spanish, French, Italian, Dutch, Polish, Portuguese, Turkish, Russian, Hindi, Chinese, Japanese and Korean, detected from your browser and changeable in the settings. Some translations are machine made, corrections are welcome.
 
 ## App and offline
@@ -78,7 +78,7 @@ Two test scripts for Node.js, no packages:
 
 `werkzeuge/` holds `foto.mjs` (screenshots and frame rate via Edge headless) and `icons.mjs` (renders the PNG icons from the SVG templates in `icons/`). You need none of them to play. The segment pseudo-3D technique is well explained in Lou Gorenflo’s “Lou’s Pseudo 3d Page” and Jake Gordon’s series “How to build a racing game”; both were a source of knowledge, the code is my own.
 
-## Licence
+## License
 
 - Code, graphics and sound: [MIT](LICENSE).
 - The font is [Fraunces](https://github.com/undercasetype/Fraunces) by The Fraunces Project Authors, under the SIL Open Font License 1.1 (`schrift/OFL.txt`).
